@@ -1,0 +1,17 @@
+[project]
+name = "bimpcc"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "cyipopt>=1.5.0",
+    "matplotlib>=3.10.0",
+    "numpy>=2.2.1",
+    "pandas>=2.2.3",
+    "pillow>=11.0.0",
+    "rich>=13.9.4",
+    "ruff>=0.8.4",
+    "scikit-image>=0.25.0",
+    "scipy>=1.14.1",
+]
