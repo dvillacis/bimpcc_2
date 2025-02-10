@@ -29,8 +29,8 @@ class OptimizationProblem:
     def __init__(
         self,
         objective_func: ObjectiveFn,
-        eq_constraint_funcs: List[ConstraintFn],
-        ineq_constraint_funcs: List[ConstraintFn],
+        eq_constraint_funcs: List[ConstraintFn] = [],
+        ineq_constraint_funcs: List[ConstraintFn] = [],
     ):
         self.objective_func = objective_func
         self.gradient_objective_func = self.objective_func.gradient
@@ -43,7 +43,7 @@ class OptimizationProblem:
                         "type": "ineq",
                         "fun": constraint_func,
                         "jac": constraint_func.jacobian,
-                        "hess": constraint_func.hessian,
+                        # "hess": constraint_func.hessian,
                     }
                 )
         if eq_constraint_funcs is not None:
@@ -53,20 +53,24 @@ class OptimizationProblem:
                         "type": "eq",
                         "fun": constraint_func,
                         "jac": constraint_func.jacobian,
-                        "hess": constraint_func.hessian,
+                        # "hess": None,
                     }
                 )
 
     def solve(
-        self, x0: List[float], bounds: List[Tuple[float, float]]
+        self, x0: List[float], bounds: List[Tuple[float, float]], print_level: int = 0
     ) -> Tuple[dict, np.ndarray, float]:
         result = minimize_ipopt(
             fun=self.objective_func,
             jac=self.gradient_objective_func,
-            hess=self.hessian_objective_func,
+            # hess=self.hessian_objective_func,
             x0=x0,
             bounds=bounds,
             constraints=self.constraints,
+            options={
+                "print_level": print_level,
+                # "jacobian_approximation": "finite-difference-values",
+            },
         )
         return result, result["x"], result["fun"]
 

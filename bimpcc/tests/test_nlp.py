@@ -3,7 +3,6 @@ from scipy.optimize import rosen, rosen_der, rosen_hess
 from scipy.sparse import coo_array
 from bimpcc.nlp import (
     OptimizationProblem,
-    UnconstrainedOptimizationProblem,
     ConstraintFn,
     ObjectiveFn,
 )
@@ -23,7 +22,7 @@ class RosenFn(ObjectiveFn):
 def test_simple_nlp():
     """Test the correctness of the simple NLP problem."""
     rosen = RosenFn()
-    nlp = UnconstrainedOptimizationProblem(rosen)
+    nlp = OptimizationProblem(rosen)
     x0 = np.array([0, 0])
     bounds = [(-10, 10), (-10, 10)]
     res, x, f = nlp.solve(x0, bounds)
@@ -91,7 +90,7 @@ def test_const_nlp():
     c = SimpleConstraint()
     rosen = RosenFn()
     nlp = OptimizationProblem(rosen, [], [c])
-    x0 = 0.0 * np.ones(5)
+    x0 = 1.0 * np.ones(5)
     bounds = None
     res, x, f = nlp.solve(x0, bounds)
     print(res)

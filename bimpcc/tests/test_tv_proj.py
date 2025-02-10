@@ -1,12 +1,12 @@
 import numpy as np
-from bimpcc.tv_denoising import TVDenoising, _generate_index
+from bimpcc.tv_denoising_projected import TVDenoisingProjected, _generate_index
 from bimpcc.utils import generate_2D_gradient_matrices
 
 def test_tv_denoising():
     """Test the correctness of the TV denoising problem."""
     true_img = np.array([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.7, 0.8, 0.9]])
     noisy_img = np.array([[0.2, 0.2, 0.4], [0.2, 0.2, 0.7], [0.8, 0.9, 1.0]])
-    model = TVDenoising(true_img, noisy_img)
+    model = TVDenoisingProjected(true_img, noisy_img)
     res,x_opt,fun_opt = model.solve(print_level=5)
     print(f"res: {res}")
 

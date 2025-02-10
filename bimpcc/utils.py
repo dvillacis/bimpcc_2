@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.sparse as sp
 from scipy.sparse.linalg import LinearOperator
 
 # from scipy.sparse import spdiags, kron, vstack
@@ -67,3 +68,26 @@ def compute_image_gradients(image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     Gy = Dy @ image_vector  # Apply y-gradient operator
 
     return Gx.reshape(H, W), Gy.reshape(H, W)
+
+def generate_2D_gradient_matrices(N) -> tuple:
+    '''
+    Generate the gradient matrices for a 2D image
+
+    Parameters:
+    N: int
+        Number of pixels in each dimension
+
+    Returns:
+    Kx: np.ndarray
+        Gradient matrix in the x-direction
+    Ky: np.ndarray
+        Gradient matrix in the y-direction
+    '''
+    Kx_temp = sp.spdiags([-np.ones(N), np.ones(N)], [0, 1], N-1, N, format='csr')
+    Kx = sp.kron(sp.spdiags(np.ones(N), [0], N, N), Kx_temp, format='csr')
+    Ky_temp = sp.spdiags([-np.ones(N*(N-1))], [0], N*(N-1), N**2, format='csr')
+    Ky = Ky_temp + sp.spdiags([np.ones(N*(N-1)+N)], [N],
+                           N*(N-1), N**2, format='csr')
+    K = sp.vstack((Kx, Ky))
+
+    return Kx, Ky, K
