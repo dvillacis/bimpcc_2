@@ -21,6 +21,7 @@ def test_tv_denoising():
     u = u.reshape(true_img.shape)
 
     
+    print(f"true_img: {true_img.flatten()}")
     print(f"u: {u.flatten()}")
     print(f"noisy_img: {noisy_img.flatten()}")
     print(f"q: {q}")

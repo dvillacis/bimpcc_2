@@ -134,6 +134,9 @@ class StateConstraintFn(ConstraintFn):
         )
         return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
 
+    def hessian(self, x: np.ndarray, _lambda) -> float:
+        return None
+
 
 class PrimalConstraintFn(ConstraintFn):
     def __init__(self, gradient_op: np.ndarray, parameter_size: int = 1):
@@ -148,18 +151,21 @@ class PrimalConstraintFn(ConstraintFn):
 
     def __call__(self, x: np.ndarray) -> float:
         u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
-        r_theta = np.concatenate((r * np.cos(theta), r * np.sin(theta)))
-        return self.gradient_op @ u - r_theta
+        _, INACT = _generate_index(u, self.gradient_op)
+        r_theta_ = np.concatenate(
+            (INACT * r * np.cos(theta), INACT * r * np.sin(theta))
+        )
+        return self.gradient_op @ u - r_theta_
 
     def jacobian(self, x: np.ndarray) -> float:
         u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
         ct = np.cos(theta)
         st = np.sin(theta)
-
-        diag1 = sp.coo_matrix((-ct, (np.arange(self.R), np.arange(self.R))))
-        diag2 = sp.coo_matrix((-st, (np.arange(self.R), np.arange(self.R))))
-        diag3 = sp.coo_matrix((r * st, (np.arange(self.R), np.arange(self.R))))
-        diag4 = sp.coo_matrix((-r * ct, (np.arange(self.R), np.arange(self.R))))
+        _, INACT = _generate_index(u, self.gradient_op)
+        diag1 = sp.coo_matrix((-INACT * ct, (np.arange(self.R), np.arange(self.R))))
+        diag2 = sp.coo_matrix((-INACT * st, (np.arange(self.R), np.arange(self.R))))
+        diag3 = sp.coo_matrix((INACT * r * st, (np.arange(self.R), np.arange(self.R))))
+        diag4 = sp.coo_matrix((-INACT * r * ct, (np.arange(self.R), np.arange(self.R))))
 
         Jr = sp.vstack([diag1, diag2])
 
@@ -194,70 +200,47 @@ class DualConstraintFn(ConstraintFn):
         self.parameter_size = parameter_size
         self.Id = sp.diags(np.ones(self.M), format="coo")
         self.Z_R = sp.coo_matrix((self.M, self.R))
-        self.Z_N = sp.coo_matrix((self.M, self.N))
-        self.Z_P = sp.coo_matrix((self.M, self.parameter_size))
 
     def __call__(self, x: np.ndarray) -> float:
         u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
-        delta_theta = np.concatenate((delta * np.cos(theta), delta * np.sin(theta)))
-        return q - delta_theta
+        _, Ku, normKu, inv_normKu, ACT, INACT = _compute_gradient(u, self.gradient_op)
+        gamma = np.concatenate(
+            (
+                alpha[0] * INACT * Ku[:, 0] * inv_normKu,
+                alpha[0] * INACT * Ku[:, 1] * inv_normKu,
+            )
+        )
+        delta_theta_ = np.concatenate(
+            (ACT * delta * np.cos(theta), ACT * delta * np.sin(theta))
+        )
+        return q - gamma - delta_theta_
 
     def jacobian(self, x: np.ndarray) -> float:
         u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
         ct = np.cos(theta)
         st = np.sin(theta)
-
-        q = q.reshape(2, -1).T
-
-        a = (alpha * q[:, 0]) / np.maximum(alpha, np.abs(q[:, 0]))
-        b = (alpha * q[:, 1]) / np.maximum(alpha, np.abs(q[:, 1]))
-        diaga = sp.coo_matrix((a, (np.arange(self.R), np.arange(self.R))))
-        diagb = sp.coo_matrix((b, (np.arange(self.R), np.arange(self.R))))
-
-        diag1 = sp.coo_matrix((-ct, (np.arange(self.R), np.arange(self.R))))
-        diag2 = sp.coo_matrix((-st, (np.arange(self.R), np.arange(self.R))))
+        _, Ku, normKu, inv_normKu, ACT, INACT = _compute_gradient(u, self.gradient_op)
+        data_alpha = np.concatenate(
+            (-INACT * Ku[:, 0] * inv_normKu, -INACT * Ku[:, 1] * inv_normKu)
+        )
+        Jalpha = sp.coo_matrix((data_alpha, (np.arange(self.M), [0]*self.M)))
+        T = _build_tensor(Ku, normKu, self.Kx, self.Ky, INACT)
+        diag1 = sp.coo_matrix((-ACT * ct, (np.arange(self.R), np.arange(self.R))))
+        diag2 = sp.coo_matrix((-ACT * st, (np.arange(self.R), np.arange(self.R))))
+        diag3 = sp.coo_matrix((ACT * delta * st, (np.arange(self.R), np.arange(self.R))))
+        diag4 = sp.coo_matrix((-ACT * delta * ct, (np.arange(self.R), np.arange(self.R))))
 
         Jdelta = sp.vstack([diag1, diag2])
 
-        Jtheta = sp.vstack([diagb, -diaga])
+        Jtheta = sp.vstack([diag3, diag4])
 
         jac = sp.hstack(
             [
-                self.Z_N,  # u
+                -alpha[0]*T,  # u
                 self.Id,  # q
                 self.Z_R,  # r
                 Jdelta,  # delta
                 Jtheta,  # theta
-                self.Z_P,  # alpha
-            ]
-        )
-        return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
-    
-class BoundConstraintFn(ConstraintFn):
-    def __init__(self, M, N, parameter_size: int = 1):
-        self.M = M
-        self.N = N
-        self.R = M // 2
-        self.parameter_size = parameter_size
-        self.Z_N = sp.coo_matrix((self.R, self.N))
-        self.Z_M = sp.coo_matrix((self.R, self.M))
-        self.Z_R = sp.coo_matrix((self.R, self.R))
-        self.Id = sp.diags(np.ones(self.R), format="coo")
-
-    def __call__(self, x: np.ndarray) -> float:
-        u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
-        return alpha-delta
-
-    def jacobian(self, x: np.ndarray) -> float:
-        # Jalpha = sp.coo_matrix((np.ones(self.R), (np.arange(self.R), [0]*self.R)))
-        Jalpha = sp.coo_matrix((np.ones(self.R), (np.arange(self.R), np.arange(self.R))))
-        jac = sp.hstack(
-            [
-                self.Z_N,  # u
-                self.Z_M,  # q
-                self.Z_R,  # r
-                -self.Id,  # delta
-                self.Z_R,  # theta
                 Jalpha,  # alpha
             ]
         )
@@ -274,15 +257,13 @@ class TVDenoising:
         self.M, self.N = self.K.shape
         self.R = self.M // 2
         self.nlp = OptimizationProblem(
-            TVDenObjectiveFn(self.true_img, self.N, self.M, epsilon, parameter_size=self.R),
+            TVDenObjectiveFn(self.true_img, self.N, self.M, epsilon),
             eq_constraint_funcs=[
-                StateConstraintFn(self.noisy_img, self.K, parameter_size=self.R),
-                PrimalConstraintFn(self.K, parameter_size=self.R),
-                DualConstraintFn(self.K, self.Kx, self.Ky, parameter_size=self.R),
+                StateConstraintFn(self.noisy_img, self.K),
+                # PrimalConstraintFn(self.K),
+                # DualConstraintFn(self.K, self.Kx, self.Ky),
             ],
-            ineq_constraint_funcs=[
-                BoundConstraintFn(self.M, self.N),
-            ],
+            ineq_constraint_funcs=[],
         )
 
     def parse_vars(self, x):
@@ -295,7 +276,7 @@ class TVDenoising:
             r0 = 0.01 * np.ones(self.R)
             delta0 = 0.01 * np.ones(self.R)
             theta0 = 0.01 * np.ones(self.R)
-            alpha0 = 0.01 * np.ones(self.R)
+            alpha0 = 0.01 * np.ones(1)
             x0 = np.concatenate((u0, q0, r0, delta0, theta0, alpha0))
         if bounds is None:
             u_bounds = [(0, None)] * (self.N)
@@ -303,7 +284,7 @@ class TVDenoising:
             r_bounds = [(0, None)] * (self.R)
             delta_bounds = [(0, None)] * (self.R)
             theta_bounds = [(None, None)] * (self.R)
-            alpha_bounds = [(0, None)] * (self.R)
+            alpha_bounds = [(0, None)] * (1)
             bounds = (
                 u_bounds
                 + q_bounds
