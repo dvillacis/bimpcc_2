@@ -41,11 +41,11 @@ class Synthetic:
 
 def get_dataset(dataset_name, scale=256, folder='datasets'):
     if dataset_name == 'cameraman':
-        return Dataset(f'{folder}/cameraman/cameraman.png', scale)
+        return Dataset(f'../{folder}/cameraman/cameraman.png', scale)
     elif dataset_name == 'wood':
-        return Dataset(f'{folder}/wood/wood.png', scale)
+        return Dataset(f'../{folder}/wood/wood.png', scale)
     elif dataset_name == 'circle':
-        return Dataset(f'{folder}/circle/circle.png', scale)
+        return Dataset(f'../{folder}/circle/circle.png', scale)
     elif dataset_name == 'synthetic':
         return Synthetic(scale)
     else:

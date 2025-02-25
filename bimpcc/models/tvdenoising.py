@@ -1,7 +1,9 @@
 import numpy as np
+from dataclasses import dataclass
 import scipy.sparse as sp
 from bimpcc.nlp import OptimizationProblem, ConstraintFn, ObjectiveFn
 from bimpcc.utils import generate_2D_gradient_matrices
+from bimpcc.dataset import Dataset
 
 
 def _parse_vars(x: np.ndarray, N: int, M: int):
@@ -360,3 +362,9 @@ class TVDenoising:
                 + alpha_bounds
             )
         return self.nlp.solve(x0, bounds, print_level=print_level)
+
+
+@dataclass
+class TVDenoisingModel:
+    dataset: Dataset
+    base_model: TVDenoising

@@ -1,0 +1,5 @@
+experiments:
+  TVDenosingToy:
+    dataset: cameraman
+    img_size: 10
+    
