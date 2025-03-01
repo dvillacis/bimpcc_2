@@ -15,3 +15,7 @@ uv.lock
 
 .vscode
 .DS_Store
+
+# pytest
+.cache/
+*.pytest_cache/
