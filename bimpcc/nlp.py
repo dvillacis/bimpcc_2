@@ -46,7 +46,7 @@ class ObjectiveFn(Protocol):
 
     def hessian(self, x: np.ndarray) -> float:
         pass
-
+    
 
 class PenalizedObjectiveFn(Protocol):
     def __init__(self, pi: float = 1.0) -> None:

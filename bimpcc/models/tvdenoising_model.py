@@ -1,6 +1,5 @@
 import numpy as np
 import scipy.sparse as sp
-from typing import Annotated
 from .model import MPCCModel, MPCCPenalizedModel
 from bimpcc.utils import generate_2D_gradient_matrices
 from bimpcc.nlp import (
@@ -9,8 +8,7 @@ from bimpcc.nlp import (
     ConstraintFn,
     ComplementarityConstraintFn,
 )
-
-Image = Annotated[np.ndarray, (2, None)]
+from bimpcc.models.typings import Image
 
 
 def _parse_vars(x: np.ndarray, N: int, M: int):
@@ -144,8 +142,10 @@ class PenalizedTVDenObjectiveFn(PenalizedObjectiveFn):
             self.N + self.M + self.R : self.N + self.M + 2 * self.R,
             self.N + self.M : self.N + self.M + self.R,
         ] = -self.pi * np.eye(self.R)
-        A[self.N + self.M : self.N + self.M + self.R, -1] = (self.epsilon+self.pi) * np.ones(self.R)
-        A[-1, -1] = self.epsilon+self.pi
+        A[self.N + self.M : self.N + self.M + self.R, -1] = (
+            self.epsilon + self.pi
+        ) * np.ones(self.R)
+        A[-1, -1] = self.epsilon + self.pi
         # d = np.concatenate(
         #     (
         #         np.ones(self.N),
