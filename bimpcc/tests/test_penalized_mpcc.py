@@ -1,26 +1,44 @@
 import numpy as np
-from bimpcc.models.model import MPCCModel
-from bimpcc.nlp import ObjectiveFn, ConstraintFn, ComplementarityConstraintFn
+from bimpcc.models.model import MPCCPenalizedModel
+from bimpcc.nlp import PenalizedObjectiveFn, ConstraintFn
+from rich import print
 
 
-class Bard1Objective(ObjectiveFn):
+class Bard1Objective(PenalizedObjectiveFn):
     def __call__(self, x: np.ndarray) -> float:
-        return (x[0] - 5) ** 2 + (2 * x[1] + 1) ** 2
+        pen = np.sum(
+            np.array(
+                [
+                    x[2] * (3 * x[0] - x[1] - 3),
+                    x[3] * (-x[0] + 0.5 * x[1] + 4),
+                    x[4] * (-x[0] - x[1] + 7),
+                ]
+            )
+        )
+        return (x[0] - 5) ** 2 + (2 * x[1] + 1) ** 2 + self.pi * pen
 
     def parse_vars(self, x: np.ndarray) -> np.ndarray:
         return x
 
     def gradient(self, x: np.ndarray) -> np.ndarray:
-        return np.array([2 * (x[0] - 5), 4 * (2 * x[1] + 1), 0, 0, 0])
+        return np.array(
+            [
+                2 * (x[0] - 5) + 3 * self.pi * x[2] - self.pi * x[3] - self.pi * x[4],
+                4 * (2 * x[1] + 1) + 0.5 * self.pi * x[3] - self.pi * x[4],
+                self.pi * (3 * x[0] - x[1] - 3),
+                self.pi * (-x[0] + 0.5 * x[1] + 4),
+                self.pi * (-x[0] - x[1] + 7),
+            ]
+        )
 
     def hessian(self, x: np.ndarray) -> np.ndarray:
         return np.array(
             [
-                [2, 0, 0, 0, 0],
-                [0, 8, 0, 0, 0],
-                [0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0],
+                [2, 0, 3 * self.pi, -self.pi, -self.pi],
+                [0, 8, 0, 0.5 * self.pi, -self.pi],
+                [3 * self.pi, -self.pi, 0, 0, 0],
+                [-self.pi, 0.5 * self.pi, 0, 0, 0],
+                [-self.pi, -self.pi, 0, 0, 0],
             ]
         )
 
@@ -59,47 +77,45 @@ class BardIneq(ConstraintFn):
         return self.A
 
 
-class BardComplementarity(ComplementarityConstraintFn):
-    def __call__(self, x: np.ndarray) -> float:
-        return self.t - np.array(
-            [
-                x[2] * (3 * x[0] - x[1] - 3),
-                x[3] * (-x[0] + 0.5 * x[1] + 4),
-                x[4] * (-x[0] - x[1] + 7),
-            ]
-        )
+# class BardComplementarity(ComplementarityConstraintFn):
+#     def __call__(self, x: np.ndarray) -> float:
+#         return self.t - np.array(
+#             [
+#                 x[2] * (3 * x[0] - x[1] - 3),
+#                 x[3] * (-x[0] + 0.5 * x[1] + 4),
+#                 x[4] * (-x[0] - x[1] + 7),
+#             ]
+#         )
 
-    def parse_vars(self, x: np.ndarray) -> np.ndarray:
-        return x
+#     def parse_vars(self, x: np.ndarray) -> np.ndarray:
+#         return x
 
-    def jacobian(self, x: np.ndarray) -> np.ndarray:
-        return np.array(
-            [
-                [-3 * x[2], x[2], 3, 0, 0],
-                [x[3], -0.5 * x[3], 0, -4, 0],
-                [x[4], x[4], 0, 0, -7],
-            ]
-        )
+#     def jacobian(self, x: np.ndarray) -> np.ndarray:
+#         return np.array(
+#             [
+#                 [-3 * x[2], x[2], 3, 0, 0],
+#                 [x[3], -0.5 * x[3], 0, -4, 0],
+#                 [x[4], x[4], 0, 0, -7],
+#             ]
+#         )
 
 
-class Bard1(MPCCModel):
-    def __init__(self, x0, t_init: float = 1):
+class Bard1(MPCCPenalizedModel):
+    def __init__(self, x0, pi_init: float = 1):
         self.x0 = x0
-        self.t = t_init
+        self.pi = pi_init
 
         bounds = [(0, None)] * 5
-        objective_func = Bard1Objective()
+        objective_func = Bard1Objective(pi=pi_init)
         eq_constraint_funcs = [BardKKTConstraint()]
         ineq_constraint_funcs = [BardIneq()]
-        complementarity_constraint_func = BardComplementarity()
         super().__init__(
             objective_func,
             eq_constraint_funcs,
             ineq_constraint_funcs,
-            complementarity_constraint_func,
             bounds,
             x0,
-            t_init,
+            pi_init,
         )
 
     def compute_complementarity(self, x: np.ndarray) -> float:
@@ -110,64 +126,62 @@ class Bard1(MPCCModel):
                 x[4] * (-x[0] - x[1] + 7),
             ]
         )
-        return np.linalg.norm(comp)
+        return np.sum(comp)
 
 
-class Ralph2Objective(ObjectiveFn):
+class Ralph2Objective(PenalizedObjectiveFn):
     def __call__(self, x: np.ndarray) -> float:
-        return x[0] ** 2 + x[1] ** 2 - 4 * x[0] * x[1]
+        return x[0] ** 2 + x[1] ** 2 - 4 * x[0] * x[1] + self.pi * (x[0] * x[1])
 
     def parse_vars(self, x: np.ndarray) -> np.ndarray:
         return x
 
     def gradient(self, x: np.ndarray) -> np.ndarray:
-        return np.array([2 * x[0] - 4 * x[1], 2 * x[1] - 4 * x[0]])
+        return np.array([2 * x[0] - 4 * x[1] + self.pi * x[1], 2 * x[1] - 4 * x[0] + self.pi * x[0]])
 
     def hessian(self, x: np.ndarray) -> np.ndarray:
-        return np.array([[2, -4], [-4, 2]])
+        return np.array([[2, -4+self.pi], [-4 + self.pi, 2]])
 
 
-class Ralph2Complementarity(ComplementarityConstraintFn):
-    def __call__(self, x: np.ndarray) -> float:
-        return self.t - (x[0] * x[1])
+# class Ralph2Complementarity(ComplementarityConstraintFn):
+#     def __call__(self, x: np.ndarray) -> float:
+#         return self.t - (x[0] * x[1])
 
-    def parse_vars(self, x: np.ndarray) -> np.ndarray:
-        return x
+#     def parse_vars(self, x: np.ndarray) -> np.ndarray:
+#         return x
 
-    def jacobian(self, x: np.ndarray) -> np.ndarray:
-        return np.array([-x[1], -x[0]])
+#     def jacobian(self, x: np.ndarray) -> np.ndarray:
+#         return np.array([-x[1], -x[0]])
 
 
-class Ralph2Model(MPCCModel):
-    def __init__(self, x0, t_init: float = 1):
+class Ralph2Model(MPCCPenalizedModel):
+    def __init__(self, x0, pi_init: float = 1):
         self.x0 = x0
-        self.t = t_init
+        self.pi = pi_init
 
         bounds = [(0, None)] * 2
-        objective_func = Ralph2Objective()
+        objective_func = Ralph2Objective(pi=pi_init)
         eq_constraint_funcs = []
         ineq_constraint_funcs = []
-        complementarity_constraint_func = Ralph2Complementarity()
         super().__init__(
             objective_func,
             eq_constraint_funcs,
             ineq_constraint_funcs,
-            complementarity_constraint_func,
             bounds,
             x0,
-            t_init,
+            pi_init,
         )
 
     def compute_complementarity(self, x: np.ndarray) -> float:
         comp = x[0] * x[1]
-        return np.linalg.norm(comp)
+        return comp
 
 
 def test_bard1():
     x0 = np.array([0, 0, 0, 0, 0])
     model = Bard1(x0)
     res, x_opt, fun_opt = model.solve(
-        print_level=0, tol=1e-9, t_min=1e-8, max_iter=100, verbose=True
+        print_level=0, tol=1e-9, max_iter=100, verbose=True
     )
     print(f"Final res: {model.parse_vars_fn(x_opt)}")
     print(f"complementarity test: {model.compute_complementarity(x_opt)}")
@@ -177,7 +191,7 @@ def test_bard1():
 def test_ralph2():
     x0 = np.array([0, 0])
     model = Ralph2Model(x0)
-    res, x_opt, fun_opt = model.solve(print_level=0, tol=1e-9, t_min=1e-8, max_iter=100, verbose=True)
+    res, x_opt, fun_opt = model.solve(print_level=0, tol=1e-9, max_iter=100)
     print(f"Final res: {model.parse_vars_fn(x_opt)}")
     print(f"complementarity test: {model.compute_complementarity(x_opt)}")
     assert model.compute_complementarity(x_opt) < 1e-6

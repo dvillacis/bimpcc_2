@@ -48,6 +48,23 @@ class ObjectiveFn(Protocol):
         pass
 
 
+class PenalizedObjectiveFn(Protocol):
+    def __init__(self, pi: float = 1.0) -> None:
+        self.pi = pi
+
+    def __call__(self, x: np.ndarray) -> float:
+        pass
+
+    def parse_vars(self, x: np.ndarray) -> Tuple:
+        pass
+
+    def gradient(self, x: np.ndarray) -> float:
+        pass
+
+    def hessian(self, x: np.ndarray) -> float:
+        pass
+
+
 class OptimizationProblem:
     def __init__(
         self,
@@ -81,7 +98,7 @@ class OptimizationProblem:
                 )
 
     def solve(
-        self, x0: List[float], bounds: List[Tuple[float, float]], print_level: int = 0, tol: float = 1e-4
+        self, x0: List[float], bounds: List[Tuple[float, float]], options: dict = {}
     ) -> Tuple[dict, np.ndarray, float]:
         result = minimize_ipopt(
             fun=self.objective_func,
@@ -90,14 +107,15 @@ class OptimizationProblem:
             x0=x0,
             bounds=bounds,
             constraints=self.constraints,
-            options={
-                "print_level": print_level,
-                "max_iter": 5000,
-                # "alpha_for_y": "safer-min-dual-infeas",
-                # "dual_inf_tol": 1e-6,
-                "tol": tol
-                # "jacobian_approximation": "finite-difference-values",
-            },
+            options=options,
+            # options={
+            #     "print_level": print_level,
+            #     "max_iter": 5000,
+            #     # "alpha_for_y": "safer-min-dual-infeas",
+            #     # "dual_inf_tol": 1e-6,
+            #     "tol": tol
+            #     # "jacobian_approximation": "finite-difference-values",
+            # },
         )
         return result, result["x"], result["fun"]
 
