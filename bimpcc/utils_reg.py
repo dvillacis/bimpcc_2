@@ -6,7 +6,7 @@ import scipy.sparse as sp
 from scipy.sparse import diags
 
 
-def build_index_sets(v, alpha, gamma):
+def build_index_sets(v, alpha, gamma, M):
     V = v.reshape(2, -1).T
     norm = np.apply_along_axis(np.linalg.norm, axis=1, arr=V)
     res = np.ones_like(norm)
@@ -22,11 +22,17 @@ def build_index_sets(v, alpha, gamma):
         (alpha - (0.5 * gamma) * (alpha - gamma * norm + (0.5 / gamma)) ** 2) / norm,
     )
     # b = (alpha - 0.5 * gamma * (alpha - gamma * norm + 0.5 / gamma) ** 2) / norm
-    A_gamma = diags(np.concatenate((a_gamma, a_gamma)))
-    I_gamma = diags(np.concatenate((i_gamma, i_gamma)))
-    S_gamma = diags(np.concatenate((s_gamma, s_gamma)))
-    L_1 = diags(np.concatenate((a, a)))
-    L_2 = diags(np.concatenate((c, c)))
+    A_gamma = sp.coo_matrix(
+        (np.concatenate((a_gamma, a_gamma)), (np.arange(M), np.arange(M)))
+    )
+    I_gamma = sp.coo_matrix(
+        (np.concatenate((i_gamma, i_gamma)), (np.arange(M), np.arange(M)))
+    )
+    S_gamma = sp.coo_matrix(
+        (np.concatenate((s_gamma, s_gamma)), (np.arange(M), np.arange(M)))
+    )
+    L_1 = sp.coo_matrix((np.concatenate((a, a)), (np.arange(M), np.arange(M))))
+    L_2 = sp.coo_matrix((np.concatenate((c, c)), (np.arange(M), np.arange(M))))
     return A_gamma, I_gamma, S_gamma, L_1, L_2
 
 
@@ -92,7 +98,8 @@ def build_index_sets(v, alpha, gamma):
 #     return H_1_1 - H_1_2, H_2
 
 
-def build_jacobian_matrices(K, u, q, alpha, gamma):
+def build_jacobian_matrices(K, u, q, alpha, gamma, M):
+    K = K.tocoo()
     Ku = K @ u
     Ku = np.where(Ku == 0, 1e-10, Ku)
     V = Ku.reshape(2, -1).T
@@ -105,9 +112,15 @@ def build_jacobian_matrices(K, u, q, alpha, gamma):
     i_gamma = np.where(gamma * norm <= alpha - 0.5 / gamma, res, 0)
     s_gamma = 1 - a_gamma - i_gamma
 
-    A_gamma = sp.diags(np.concatenate((a_gamma, a_gamma)))
-    I_gamma = sp.diags(np.concatenate((i_gamma, i_gamma)))
-    S_gamma = sp.diags(np.concatenate((s_gamma, s_gamma)))
+    A_gamma = sp.coo_matrix(
+        (np.concatenate((a_gamma, a_gamma)), (np.arange(M), np.arange(M)))
+    )
+    I_gamma = sp.coo_matrix(
+        (np.concatenate((i_gamma, i_gamma)), (np.arange(M), np.arange(M)))
+    )
+    S_gamma = sp.coo_matrix(
+        (np.concatenate((s_gamma, s_gamma)), (np.arange(M), np.arange(M)))
+    )
 
     a = np.where(norm <= 1e-10, 0, alpha / norm)
     b = np.where(norm <= 1e-10, 0, alpha / (norm**2 * np.maximum(alpha, norm_q)))
@@ -124,23 +137,33 @@ def build_jacobian_matrices(K, u, q, alpha, gamma):
         norm <= 1e-10, 0, (1 - gamma * (alpha - (gamma * norm) + (0.5 / gamma))) / norm
     )
 
-    diag_a = sp.diags(np.concatenate((a, a)))
-    diag_b = sp.diags(np.concatenate((b, b)))
-    diag_c = sp.diags(np.concatenate((c, c)))
-    diag_d = sp.diags(np.concatenate((d, d)))
+    diag_a = sp.coo_matrix((np.concatenate((a, a)), (np.arange(M), np.arange(M))))
+    diag_b = sp.coo_matrix((np.concatenate((b, b)), (np.arange(M), np.arange(M))))
+    diag_c = sp.coo_matrix((np.concatenate((c, c)), (np.arange(M), np.arange(M))))
+    diag_d = sp.coo_matrix((np.concatenate((d, d)), (np.arange(M), np.arange(M))))
 
     # Convertir q y Ku en sparse
-    q_sparse = sp.csr_matrix(q).T  # Para operar correctamente en productos matriciales
-    Ku_sparse = sp.csr_matrix(Ku).T
+    # q_sparse = sp.csr_matrix(q).T  # Para operar correctamente en productos matriciales
+    # Ku_sparse = sp.csr_matrix(Ku).T
 
-    diag_q = sp.diags(q_sparse.toarray().flatten())
-    diag_Ku = sp.diags(Ku_sparse.toarray().flatten())
+    diag_q = sp.coo_matrix((q, (np.arange(M), np.arange(M))))
+    diag_Ku = sp.coo_matrix((Ku, (np.arange(M), np.arange(M))))
 
-    diag_e = sp.diags(np.concatenate((e, e)))
-    diag_f = sp.diags(np.concatenate((f, f)))
+    diag_e = sp.coo_matrix((np.concatenate((e, e)), (np.arange(M), np.arange(M))))
+    diag_f = sp.coo_matrix((np.concatenate((f, f)), (np.arange(M), np.arange(M))))
 
     n = len(norm)
-    L = sp.diags((Ku[:n], Ku, Ku[n:]), offsets=(-n, 0, n))
+
+    L_main_diag = np.arange(M)
+    L_lower_diag = np.arange(n, M)
+    L_upper_diag = np.arange(0, M - n)
+
+    L_rows = np.concatenate((L_lower_diag, L_main_diag, L_upper_diag))
+    L_cols = np.concatenate((L_main_diag[:-n], L_main_diag, L_main_diag[n:]))
+    L_vals = np.concatenate((Ku[:n], Ku, Ku[n:]))
+
+    L = sp.coo_matrix((L_vals, (L_rows, L_cols)), shape=(M, M))
+    # L = sp.diags((Ku[:n], Ku, Ku[n:]), offsets=(-n, 0, n))
 
     H_1_1 = (A_gamma @ diag_a + S_gamma @ diag_c + gamma * I_gamma) @ K
     H_1_2 = (
@@ -153,10 +176,10 @@ def build_jacobian_matrices(K, u, q, alpha, gamma):
         @ K
     )
 
-    H_2 = (A_gamma @ diag_e + S_gamma @ diag_f) @ Ku_sparse
-    H_2 = sp.csr_matrix(H_2)  # Asegurar que H_2 es disperso
+    H_2 = (A_gamma @ diag_e + S_gamma @ diag_f) @ Ku
+    # H_2 = sp.csr_matrix(H_2)  # Asegurar que H_2 es disperso
 
-    return H_1_1 - H_1_2, H_2
+    return (H_1_1 - H_1_2).tocoo(), H_2
 
 
 def h(row: np.ndarray, alpha: float, gamma: float) -> np.ndarray:

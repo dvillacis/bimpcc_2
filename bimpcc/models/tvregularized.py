@@ -122,7 +122,9 @@ class DualConstraintFn(ConstraintFn):
     def __call__(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
         Ku = self.gradient_op @ u
-        A_gamma, I_gamma, S_gamma, L_1, L_2 = build_index_sets(Ku, alpha, self.gamma)
+        A_gamma, I_gamma, S_gamma, L_1, L_2 = build_index_sets(
+            Ku, alpha, self.gamma, self.M
+        )
         return q - (A_gamma @ L_1 + S_gamma @ L_2 + self.gamma * I_gamma) @ Ku
 
     def parse_vars(self, x):
@@ -131,7 +133,7 @@ class DualConstraintFn(ConstraintFn):
     def jacobian(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
         H_u, H_alpha = build_jacobian_matrices(
-            self.gradient_op, u, q, alpha, self.gamma
+            self.gradient_op, u, q, alpha, self.gamma, self.M
         )
         # jac = bmat(
         #     [
@@ -144,7 +146,7 @@ class DualConstraintFn(ConstraintFn):
         # return jac_matrix.ravel()
         # Construcción de la jacobiana usando hstack
         jac = sp.hstack(
-            [-H_u, self.Id, -H_alpha]  # Matrices en columnas
+            [-H_u, self.Id, -H_alpha.reshape((self.M,1))]  # Matrices en columnas
         )
         print(jac.shape)
         # Convertir a formato COO para compatibilidad
