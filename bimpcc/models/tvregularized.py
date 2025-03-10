@@ -1,8 +1,12 @@
 import numpy as np
 import scipy.sparse as sp
 from bimpcc.utils import generate_2D_gradient_matrices
+from bimpcc.utils_reg import build_index_sets, build_jacobian_matrices
 from bimpcc.nlp import ObjectiveFn, ConstraintFn, OptimizationProblem
 from bimpcc.models.typings import Image
+
+# from scipy.sparse import bmat, identity, diags
+from scipy.sparse import diags
 
 
 def _parse_vars(x: np.ndarray, N: int, M: int):
@@ -72,11 +76,9 @@ class StateConstraintFn(ConstraintFn):
         self.noisy_img = noisy_img.flatten()
         self.gradient_op = gradient_op
         self.M, self.N = gradient_op.shape
-        self.R = self.M // 2
         self.parameter_size = parameter_size
         self.Id = sp.eye(self.N).tocoo()
         self.KT = (self.gradient_op.T).tocoo()
-        self.Z_R = sp.coo_matrix((self.N, self.R))
         self.Z_P = sp.coo_matrix((self.N, self.parameter_size))
 
     def __call__(self, x: np.ndarray) -> float:
@@ -94,13 +96,59 @@ class StateConstraintFn(ConstraintFn):
                 self.Z_P,  # alpha
             ]
         )
+        print(jac.shape)
         return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
 
 
 class DualConstraintFn(ConstraintFn):
+    def __init__(
+        self,
+        noisy_img: np.ndarray,
+        gradient_op: np.ndarray,
+        parameter_size: int = 1,
+        gamma: int = 100,
+    ):
+        self.noisy_img = noisy_img.flatten()
+        self.gradient_op = gradient_op
+        self.M, self.N = gradient_op.shape
+        self.gamma = gamma
+        self.Id = sp.eye(self.M).tocoo()
+        # Jacobian sparsity structure
+        o = np.ones(self.M)
+        H = self.M // 2
+        D = diags((o[:H], o, o[H:]), offsets=(-H, 0, H))
+        self.H_u_sparsity_structure = D @ self.gradient_op
+
     def __call__(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
-        return q - A @ r
+        Ku = self.gradient_op @ u
+        A_gamma, I_gamma, S_gamma, L_1, L_2 = build_index_sets(Ku, alpha, self.gamma)
+        return q - (A_gamma @ L_1 + S_gamma @ L_2 + self.gamma * I_gamma) @ Ku
+
+    def parse_vars(self, x):
+        return _parse_vars(x, self.N, self.M)
+
+    def jacobian(self, x: np.ndarray) -> float:
+        u, q, alpha = self.parse_vars(x)
+        H_u, H_alpha = build_jacobian_matrices(
+            self.gradient_op, u, q, alpha, self.gamma
+        )
+        # jac = bmat(
+        #     [
+        #         [-H_u, identity(self.M), -H_alpha],
+        #     ]
+        # )
+        # # print(f"jacobian nonzero elements: {jac.nnz}")
+        # jac_matrix = jac.toarray()
+        # # print(f"jac_matrix shape: {jac_matrix.shape}")
+        # return jac_matrix.ravel()
+        # Construcción de la jacobiana usando hstack
+        jac = sp.hstack(
+            [-H_u, self.Id, -H_alpha]  # Matrices en columnas
+        )
+        print(jac.shape)
+        # Convertir a formato COO para compatibilidad
+        return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
 
 
 class TVRegularized:
@@ -125,7 +173,7 @@ class TVRegularized:
         )
         self.eq_constraint_funcs = [
             StateConstraintFn(noisy_img, K, parameter_size=parameter_size),
-            DualConstraintFn(),
+            DualConstraintFn(noisy_img, K, parameter_size=parameter_size, gamma=100),
         ]
         self.ineq_constraint_funcs = []
 
@@ -146,7 +194,7 @@ class TVRegularized:
         else:
             self.x0 = x0
 
-    def solve(self, max_iter: int = 3000, tol: float = 1e-4, print_level: int = 0):
+    def solve(self, max_iter: int = 3000, tol: float = 1e-4, print_level: int = 5):
         nlp = OptimizationProblem(
             self.objective_func,
             self.eq_constraint_funcs,
@@ -158,5 +206,3 @@ class TVRegularized:
             "tol": tol,
         }
         return nlp.solve(self.x0, self.bounds, options=options)
-        
-        
