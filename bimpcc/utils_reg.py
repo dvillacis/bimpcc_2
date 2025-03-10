@@ -3,7 +3,6 @@ import numpy as np
 # from utils import generate_2D_gradient_matrices
 # from scipy.sparse import bmat, identity, diags
 import scipy.sparse as sp
-from scipy.sparse import diags
 
 
 def build_index_sets(v, alpha, gamma, M):
@@ -142,10 +141,6 @@ def build_jacobian_matrices(K, u, q, alpha, gamma, M):
     diag_c = sp.coo_matrix((np.concatenate((c, c)), (np.arange(M), np.arange(M))))
     diag_d = sp.coo_matrix((np.concatenate((d, d)), (np.arange(M), np.arange(M))))
 
-    # Convertir q y Ku en sparse
-    # q_sparse = sp.csr_matrix(q).T  # Para operar correctamente en productos matriciales
-    # Ku_sparse = sp.csr_matrix(Ku).T
-
     diag_q = sp.coo_matrix((q, (np.arange(M), np.arange(M))))
     diag_Ku = sp.coo_matrix((Ku, (np.arange(M), np.arange(M))))
 
@@ -178,31 +173,6 @@ def build_jacobian_matrices(K, u, q, alpha, gamma, M):
 
     H_2 = (A_gamma @ diag_e + S_gamma @ diag_f) @ Ku
     # H_2 = sp.csr_matrix(H_2)  # Asegurar que H_2 es disperso
-
+    H_1_1.tocoo()
+    H_1_2.tocoo()
     return (H_1_1 - H_1_2).tocoo(), H_2
-
-
-def h(row: np.ndarray, alpha: float, gamma: float) -> np.ndarray:
-    norm_row = np.linalg.norm(row)
-    a = alpha / norm_row
-    b = (
-        alpha - (0.5 * gamma) * (alpha - gamma * norm_row + (0.5 / gamma)) ** 2
-    ) / norm_row
-    if gamma * norm_row >= alpha + 0.5 / gamma:
-        return a * row
-    elif gamma * norm_row <= alpha - 0.5 / gamma:
-        return gamma * row
-    else:
-        return b * row
-
-
-def h_alpha(row: np.ndarray, alpha: float, gamma: float) -> np.ndarray:
-    norm_row = np.linalg.norm(row)
-    a = 1 / norm_row
-    b = (1 - gamma * (alpha - gamma * norm_row + (0.5 / gamma))) / norm_row
-    if gamma * norm_row >= alpha + 0.5 / gamma:
-        return a * row
-    elif gamma * norm_row <= alpha - 0.5 / gamma:
-        return np.zeros_like(row)
-    else:
-        return b * row

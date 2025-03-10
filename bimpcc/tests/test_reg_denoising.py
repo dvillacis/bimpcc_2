@@ -2,18 +2,18 @@ import numpy as np
 from bimpcc.models.tvregularized import TVRegularized
 # from bimpcc.utils import generate_2D_gradient_matrices
 
+
 def test_tv_denoising():
     """Test the correctness of the TV denoising problem."""
     # true_img = np.array([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.7, 0.8, 0.9]])
     sz = 15
-    true_img = 0.5*np.random.randn(sz, sz)    
+    true_img = 0.5 * np.random.randn(sz, sz)
     # noisy_img = np.array([[0.1, 0.2, 0.2], [0.2, 0.2, 0.2], [0.2, 0.2, 0.2]])
     noisy_img = true_img + 0.05 * np.random.randn(*true_img.shape)
     model = TVRegularized(true_img, noisy_img, epsilon=1e-8)
     # x0 = np.concatenate([true_img.flatten(), 1e-5*np.ones(30), 1e-5*np.ones(1)])
-    res,x_opt,fun_opt = model.solve(print_level=5)
+    res, x_opt, fun_opt = model.solve(print_level=5)
     print(f"res: {res}")
-
 
     # Assert correctness
     # np.testing.assert_allclose(u, expected_u, atol=1e-6, err_msg="u is incorrect")
