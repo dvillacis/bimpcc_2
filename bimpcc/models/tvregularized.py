@@ -96,7 +96,7 @@ class StateConstraintFn(ConstraintFn):
                 self.Z_P,  # alpha
             ]
         )
-        print(jac.shape)
+        # print(jac.shape)
         return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
 
 
@@ -144,11 +144,14 @@ class DualConstraintFn(ConstraintFn):
         # jac_matrix = jac.toarray()
         # # print(f"jac_matrix shape: {jac_matrix.shape}")
         # return jac_matrix.ravel()
+        indices = np.arange(H_alpha.size)
+        v_coo = sp.coo_matrix((H_alpha, (indices, np.zeros_like(indices))), shape=(H_alpha.size, 1))
+
         # Construcción de la jacobiana usando hstack
         jac = sp.hstack(
-            [-H_u, self.Id, -H_alpha.reshape((self.M,1))]  # Matrices en columnas
+            [-H_u, self.Id, -v_coo]  # Matrices en columnas
         )
-        print(jac.shape)
+        # print(jac.shape)
         # Convertir a formato COO para compatibilidad
         return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
 
@@ -206,5 +209,6 @@ class TVRegularized:
             "print_level": print_level,
             "max_iter": max_iter,
             "tol": tol,
+            "check_derivatives_for_naninf": "yes",
         }
         return nlp.solve(self.x0, self.bounds, options=options)

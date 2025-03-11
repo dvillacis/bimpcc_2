@@ -1,6 +1,6 @@
 import numpy as np
 from AbstractNLP import AbstractNLP
-from bimpcc.Dataset import get_dataset
+from bimpcc.dataset import get_dataset
 from utils import (
     generate_2D_gradient_matrices,
     plot_experiment,

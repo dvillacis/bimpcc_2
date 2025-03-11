@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from scipy.sparse import spdiags, kron, diags, vstack, coo_matrix
 import os
-from bimpcc.Dataset import get_dataset
+from bimpcc.dataset import get_dataset
 import matplotlib.pyplot as plt
 from skimage.metrics import peak_signal_noise_ratio as psnr
 from typing import Callable
