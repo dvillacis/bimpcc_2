@@ -162,18 +162,18 @@ class TVRegularized:
         *args,
         **kwargs,
     ):
-        Kx, Ky, K = generate_2D_gradient_matrices(true_img.shape[0])
+        Kx, Ky, self.K = generate_2D_gradient_matrices(true_img.shape[0])
         true_img = true_img.flatten()
         noisy_img = noisy_img.flatten()
 
-        M, N = K.shape
+        M, N = self.K.shape
 
         self.objective_func = TVDenRegObjectiveFn(
-            true_img, K, epsilon=epsilon, parameter_size=parameter_size
+            true_img, self.K, epsilon=epsilon, parameter_size=parameter_size
         )
         self.eq_constraint_funcs = [
-            StateConstraintFn(noisy_img, K, parameter_size=parameter_size),
-            DualConstraintFn(noisy_img, K, parameter_size=parameter_size, gamma=100),
+            StateConstraintFn(noisy_img, self.K, parameter_size=parameter_size),
+            DualConstraintFn(noisy_img, self.K, parameter_size=parameter_size, gamma=100),
         ]
         self.ineq_constraint_funcs = []
 

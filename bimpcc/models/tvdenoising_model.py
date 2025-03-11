@@ -384,17 +384,17 @@ class TVDenoisingMPCC(MPCCModel):
         x0: np.ndarray = None,
         parameter_size: int = 1,
     ):
-        Kx, Ky, K = generate_2D_gradient_matrices(true_img.shape[0])
+        Kx, Ky, self.K = generate_2D_gradient_matrices(true_img.shape[0])
         true_img = true_img.flatten()
         noisy_img = noisy_img.flatten()
 
-        M, N = K.shape
+        M, N = self.K.shape
         R = M // 2
-        objective_func = TVDenObjectiveFn(true_img, K, epsilon=epsilon)
+        objective_func = TVDenObjectiveFn(true_img, self.K, epsilon=epsilon)
         eq_constraint_funcs = [
-            StateConstraintFn(noisy_img, K),
-            PrimalConstraintFn(K),
-            DualConstraintFn(K, Kx, Ky),
+            StateConstraintFn(noisy_img, self.K),
+            PrimalConstraintFn(self.K),
+            DualConstraintFn(self.K, Kx, Ky),
         ]
         ineq_constraint_funcs = [BoundConstraintFn(M, N)]
         # ineq_constraint_funcs = []
