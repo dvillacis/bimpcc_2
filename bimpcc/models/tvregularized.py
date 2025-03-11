@@ -6,7 +6,6 @@ from bimpcc.nlp import ObjectiveFn, ConstraintFn, OptimizationProblem
 from bimpcc.models.typings import Image
 
 # from scipy.sparse import bmat, identity, diags
-from scipy.sparse import diags
 
 
 def _parse_vars(x: np.ndarray, N: int, M: int):
@@ -113,15 +112,11 @@ class DualConstraintFn(ConstraintFn):
         self.M, self.N = gradient_op.shape
         self.gamma = gamma
         self.Id = sp.eye(self.M).tocoo()
-        # Jacobian sparsity structure
-        o = np.ones(self.M)
-        H = self.M // 2
-        D = diags((o[:H], o, o[H:]), offsets=(-H, 0, H))
-        self.H_u_sparsity_structure = D @ self.gradient_op
 
     def __call__(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
-        Ku = self.gradient_op @ u
+        K = self.gradient_op.tocoo()
+        Ku = K @ u
         A_gamma, I_gamma, S_gamma, L_1, L_2 = build_index_sets(
             Ku, alpha, self.gamma, self.M
         )
