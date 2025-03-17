@@ -357,7 +357,7 @@ class TVDenComplementarityConstraintFn(ComplementarityConstraintFn):
 
     def jacobian(self, x: np.ndarray) -> float:
         u, q, r, delta, theta, alpha = self.parse_vars(x)
-        Jalpha = sp.coo_matrix((np.ones(self.R), (np.arange(self.R), [0] * self.R)))
+        Jalpha = sp.coo_matrix((r*np.ones(self.R), (np.arange(self.R), [0] * self.R)))
         Jr = sp.coo_matrix((alpha - delta, (np.arange(self.R), np.arange(self.R))))
         Jdelta = sp.coo_matrix((r, (np.arange(self.R), np.arange(self.R))))
         # Jalpha = sp.coo_matrix((r, (np.arange(self.R), np.arange(self.R))))

@@ -20,7 +20,7 @@ class MPCCModel(ABC):
         complementarity_constraint_func: ComplementarityConstraintFn,
         bounds: List[Tuple[Union[int, None], Union[int, None]]],
         x0: np.ndarray,
-        t_init=1e-2,
+        t_init=1.0,
         *args,
         **kwargs,
     ):
