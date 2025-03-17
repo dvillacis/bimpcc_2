@@ -40,6 +40,7 @@ class MPCCModel(ABC):
     def _solve_nlp(self, x0, bounds, t, *args, **kwargs):
         print_level = kwargs.get("print_level", 0)
         tol = kwargs.get("tol", 1e-4)
+        max_iter = kwargs.get("max_iter", 5000)
         self.complementarity_constraint_func.t = t
         nlp = OptimizationProblem(
             self.objective_func,
@@ -49,6 +50,8 @@ class MPCCModel(ABC):
         options = {
             "print_level": print_level,
             "tol": tol,
+            "max_iter": max_iter,
+            "acceptable_tol": tol,
         }
         return nlp.solve(x0, bounds, options=options)
 
@@ -58,6 +61,7 @@ class MPCCModel(ABC):
         max_iter: int = 10,
         tol: float = 1e-3,
         nlp_tol: float = 1e-8,
+        nlp_max_iter: int = 5000,
         verbose: bool = False,
         print_level: int = 0,
         beta=0.5,
@@ -80,7 +84,7 @@ class MPCCModel(ABC):
                 print(f"complementarity: {self.compute_complementarity(x)}")
                 break
             res, x_, fn = self._solve_nlp(
-                x, self.bounds, t, tol=nlp_tol, print_level=print_level
+                x, self.bounds, t, tol=nlp_tol, print_level=print_level, max_iter=nlp_max_iter
             )
             comp = self.compute_complementarity(x_)
             if np.abs(comp) < tol:
