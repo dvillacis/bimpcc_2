@@ -5,7 +5,7 @@ from bimpcc.utils_reg import build_index_sets, build_jacobian_matrices
 from bimpcc.nlp import ObjectiveFn, ConstraintFn, OptimizationProblem
 from bimpcc.models.typings import Image
 
-# from scipy.sparse import bmat, identity, diags
+from bimpcc.utils_tvq import diagonal_j_rho, build_nabla_u
 
 
 def _parse_vars(x: np.ndarray, N: int, M: int):
@@ -32,9 +32,7 @@ class TVDenRegObjectiveFn(ObjectiveFn):
 
     def __call__(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
-        return (
-            0.5 * np.linalg.norm(u - self.true_img) ** 2
-        )
+        return 0.5 * np.linalg.norm(u - self.true_img) ** 2
         # return 0.5 * np.linalg.norm(u - self.true_img) ** 2 + self.epsilon * np.linalg.norm(alpha) ** 2
 
     def parse_vars(self, x):
@@ -78,27 +76,45 @@ class StateConstraintFn(ConstraintFn):
         self.gamma = gamma
         self.rho = rho
         self.q_param = q_param
-        self.delta_gamma = (gamma**(1-q_param))*(q_param ** q_param)
-
-        
+        self.delta_gamma = (gamma ** (1 - q_param)) * (q_param**q_param)
 
         self.Id = sp.eye(self.N).tocoo()
         self.KT = (self.gradient_op.T).tocoo()
+        self.K = self.gradient_op.tocoo()
         self.Z_P = sp.coo_matrix((self.N, self.parameter_size))
 
     def __call__(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
-        return u - self.noisy_img + self.gradient_op.T @ q
+        Da = diagonal_j_rho(
+            self.K @ u, alpha, self.delta_gamma, self.q_param, self.gamma, self.rho
+        )
+        return (-1 / self.delta_gamma) * (
+            self.KT @ Da @ self.K @ u - u + self.noisy_img
+        ) + self.K.T @ q
 
     def parse_vars(self, x):
         return _parse_vars(x, self.N, self.M)
 
     def jacobian(self, x: np.ndarray) -> float:
+        u, q, alpha = self.parse_vars(x)
+        W_u, W_beta = build_nabla_u(
+            u,
+            self.K,
+            self.q_param,
+            alpha,
+            self.delta_gamma,
+            self.gamma,
+            self.rho,
+            self.N,
+            self.M,
+        )
+        # W_u = (-1/self.delta_gamma) * (self.K.T @ nabla_u_w - self.Id)
+        # W_beta = (-1/self.delta_gamma)*self.K.T@nabla_beta_w
         jac = sp.hstack(
             [
-                self.Id,  # u
+                W_u,  # u
                 self.KT,  # q
-                self.Z_P,  # alpha
+                W_beta,  # alpha
             ]
         )
         # print(jac.shape)
@@ -137,7 +153,9 @@ class DualConstraintFn(ConstraintFn):
             self.gradient_op, u, q, alpha, self.gamma, self.M
         )
         indices = np.arange(H_alpha.size)
-        v_coo = sp.coo_matrix((H_alpha, (indices, np.zeros_like(indices))), shape=(H_alpha.size, 1))
+        v_coo = sp.coo_matrix(
+            (H_alpha, (indices, np.zeros_like(indices))), shape=(H_alpha.size, 1)
+        )
 
         # Construcción de la jacobiana usando hstack
         jac = sp.hstack(
@@ -155,6 +173,7 @@ class TVqRegularized:
         epsilon: float = 1e-4,
         parameter_size: int = 1,
         x0: np.ndarray = None,
+        q_param: float = 0.99,
         *args,
         **kwargs,
     ):
@@ -168,8 +187,12 @@ class TVqRegularized:
             true_img, self.K, epsilon=epsilon, parameter_size=parameter_size
         )
         self.eq_constraint_funcs = [
-            StateConstraintFn(noisy_img, self.K, parameter_size=parameter_size),
-            DualConstraintFn(noisy_img, self.K, parameter_size=parameter_size, gamma=100),
+            StateConstraintFn(
+                noisy_img, self.K, parameter_size=parameter_size, q_param=q_param
+            ),
+            DualConstraintFn(
+                noisy_img, self.K, parameter_size=parameter_size, gamma=100
+            ),
         ]
         self.ineq_constraint_funcs = []
 

@@ -1,6 +1,5 @@
 import numpy as np
 from scipy.sparse import spdiags, kron, diags
-import matplotlib.pyplot as plt
 import scipy.sparse as sp
 
 
@@ -71,7 +70,7 @@ def calc_norm_Ku(u, Kx, Ky):
     return norm_Ku
 
 
-def hat_j_rho(t, beta, delta_gamma, q, gamma, rho):
+def hat_j_rho_2(t, beta, delta_gamma, q, gamma, rho):
     t1 = 1 / gamma - rho
     t2 = 1 / gamma + rho
 
@@ -98,59 +97,87 @@ def hat_j_rho(t, beta, delta_gamma, q, gamma, rho):
     return j_values
 
 
-def diagonal_j_rho(u, Kx, Ky, beta, delta_gamma, q, gamma, rho):
-    Ku_norm = calc_norm_Ku(u, Kx, Ky)
-    hat_j_rho_val = np.vectorize(
-        lambda t: hat_j_rho(t, beta, delta_gamma, q, gamma, rho)
-    )(Ku_norm)
-    A = np.diag(np.tile(hat_j_rho_val, 2))
-    return A
+def hat_j_rho(normKu, beta, delta_gamma, q_param, gamma, rho):
+    t1 = 1 / gamma - rho
+    t2 = 1 / gamma + rho
 
+    A = beta * delta_gamma - beta * q_param * (q_param / gamma + rho) ** (q_param - 1)
+    B = beta * q_param * (q_param - 1) * (q_param / gamma + rho) ** (q_param - 2)
 
-def build_nabla_u(K, u, q, beta, delta_gamma, gamma, rho, M):
-    Ku = K @ u
-    Ku = np.where(Ku == 0, 1e-10, Ku)
-    V = Ku.reshape(2, -1).T
-    norm = np.apply_along_axis(np.linalg.norm, axis=1, arr=V)
-    res = np.ones_like(norm)
-    i1 = np.where(norm <= 1 / gamma - rho, res, 0)
-    i2 = np.where((1 / gamma - rho < norm) & (norm <= 1 / gamma + rho), res, 0)
-    i3 = np.ones_like(i1) - i1 - i2
-    # I1 = diags(np.concatenate((i1, i1)))
-    I2 = diags(np.concatenate((i2, i2)))
-    I3 = diags(np.concatenate((i3, i3)))
-    A = beta * delta_gamma - beta * q * (q / gamma + rho) ** (q - 1)
-    B = beta * q * (q - 1) * (q / gamma + rho) ** (q - 2)
     a = -(gamma / (4 * rho**2 * (1 + gamma * rho))) * (
         ((2 * gamma * rho + 1) * A) / (rho * (1 + gamma * rho)) + B
     )
     b = (A * gamma) / (4 * rho**2 * (1 + gamma * rho)) + (
         gamma / (2 * rho * (1 + gamma * rho))
     ) * (((2 * gamma * rho + 1) * A) / (rho * (1 + gamma * rho)) + B)
-    A_prima = delta_gamma - beta * q * (q / gamma + rho) ** (q - 1)
-    B_prima = q * (q - 1) * (q / gamma + rho) ** (q - 2)
+
+    res = np.zeros_like(normKu)
+    res = np.where(
+        (normKu > t1) & (normKu <= t2),
+        a * (normKu - t1) ** 3 + b * (normKu - t1) ** 2,
+        res,
+    )
+    res = np.where(
+        normKu > t2,
+        beta * delta_gamma / normKu
+        - beta * q_param / normKu * (normKu + (q_param - 1) / gamma) ** (q_param - 1),
+        res,
+    )
+    return np.diag(np.concatenate((res, res)))
+
+
+def diagonal_j_rho(Ku, beta, delta_gamma, q_param, gamma, rho):
+    V = Ku.reshape(2, -1).T
+    normKu = np.apply_along_axis(np.linalg.norm, axis=1, arr=V)
+    return hat_j_rho(normKu, beta, delta_gamma, q_param, gamma, rho)
+
+
+def build_nabla_u(u, K, q_param, beta, delta_gamma, gamma, rho, N, M):
+    Ku = K @ u
+    V = Ku.reshape(2, -1).T
+    normKu = np.apply_along_axis(np.linalg.norm, axis=1, arr=V)
+    res = np.ones_like(normKu)
+    i1 = np.where(normKu <= 1 / gamma - rho, res, 0)
+    i2 = np.where((1 / gamma - rho < normKu) & (normKu <= 1 / gamma + rho), res, 0)
+    i3 = np.ones_like(i1) - i1 - i2
+    # I1 = diags(np.concatenate((i1, i1)))
+    I2 = diags(np.concatenate((i2, i2)))
+    I3 = diags(np.concatenate((i3, i3)))
+    A = beta * delta_gamma - beta * q_param * (q_param / gamma + rho) ** (q_param - 1)
+    B = beta * q_param * (q_param - 1) * (q_param / gamma + rho) ** (q_param - 2)
+    a = -(gamma / (4 * rho**2 * (1 + gamma * rho))) * (
+        ((2 * gamma * rho + 1) * A) / (rho * (1 + gamma * rho)) + B
+    )
+    b = (A * gamma) / (4 * rho**2 * (1 + gamma * rho)) + (
+        gamma / (2 * rho * (1 + gamma * rho))
+    ) * (((2 * gamma * rho + 1) * A) / (rho * (1 + gamma * rho)) + B)
+    A_prima = delta_gamma - beta * q_param * (q_param / gamma + rho) ** (q_param - 1)
+    B_prima = q_param * (q_param - 1) * (q_param / gamma + rho) ** (q_param - 2)
     a_prima = -(gamma / (4 * rho**2 * (1 + gamma * rho))) * (
         ((2 * gamma * rho + 1) * A_prima) / (rho * (1 + gamma * rho)) + B_prima
     )
     b_prima = (A_prima * gamma) / (4 * rho**2 * (1 + gamma * rho)) + (
         gamma / (2 * rho * (1 + gamma * rho))
     ) * (((2 * gamma * rho + 1) * A_prima) / (rho * (1 + gamma * rho)) + B_prima)
-    b_rho = (1 / norm) * (
-        3 * a * (norm - 1 / gamma + rho) ** 2 + 2 * b * (norm - 1 / gamma + rho)
+    b_rho = (1 / normKu) * (
+        3 * a * (normKu - 1 / gamma + rho) ** 2 + 2 * b * (normKu - 1 / gamma + rho)
     )
-    c_rho = (-(beta * delta_gamma) / norm**3) + beta * q * (
-        (1 / (norm**3)) * (norm + (q - 1) / gamma) ** (q - 1)
-        - ((q - 1) / norm**2) * (norm + (q - 1) / gamma) ** (q - 2)
+    c_rho = (-(beta * delta_gamma) / normKu**3) + beta * q_param * (
+        (1 / (normKu**3)) * (normKu + (q_param - 1) / gamma) ** (q_param - 1)
+        - ((q_param - 1) / normKu**2)
+        * (normKu + (q_param - 1) / gamma) ** (q_param - 2)
     )
-    f = a * (norm - 1 / gamma + rho) ** 3 + b * (norm - 1 / gamma + rho) ** 2
-    e = (beta * delta_gamma) / norm - (beta * q / norm) * (norm + (q - 1) / gamma) ** (
-        q - 1
-    )
+    f = a * (normKu - 1 / gamma + rho) ** 3 + b * (normKu - 1 / gamma + rho) ** 2
+    e = (beta * delta_gamma) / normKu - (beta * q_param / normKu) * (
+        normKu + (q_param - 1) / gamma
+    ) ** (q_param - 1)
     k = (
-        a_prima * (norm - 1 / gamma + rho) ** 3
-        + b_prima * (norm - 1 / gamma + rho) ** 2
+        a_prima * (normKu - 1 / gamma + rho) ** 3
+        + b_prima * (normKu - 1 / gamma + rho) ** 2
     )
-    m = (1 / norm) * (delta_gamma - q * (norm + (q - 1) / gamma) ** (q - 1))
+    m = (1 / normKu) * (
+        delta_gamma - q_param * (normKu + (q_param - 1) / gamma) ** (q_param - 1)
+    )
 
     diag_b_rho = diags(np.concatenate((b_rho, b_rho)))
     diag_c_rho = diags(np.concatenate((c_rho, c_rho)))
@@ -160,29 +187,38 @@ def build_nabla_u(K, u, q, beta, delta_gamma, gamma, rho, M):
     diag_k = diags(np.concatenate((k, k)))
     diag_m = diags(np.concatenate((m, m)))
 
-    n = len(norm)
+    n = len(normKu)
     L = diags((Ku[:n], Ku, Ku[n:]), offsets=(-n, 0, n))
     nabla_u_w = (I2 @ diag_b_rho @ diag_Ku + I3 @ diag_c_rho @ diag_Ku) @ L @ K + (
         I2 @ diag_f + I3 @ diag_e
     ) @ K
     nab_beta = (I2 @ diag_k + I3 @ diag_m) @ Ku
+
+    W_beta = (-1/delta_gamma)*K.T@nab_beta
+    W_u = (-1/delta_gamma) * (K.T @ nabla_u_w - sp.eye(N))
+
     # Jacobian sparsity structure
     o = np.ones(M)
     H = M // 2
     D = diags((o[:H], o, o[H:]), offsets=(-H, 0, H))
-    H_u_sparsity_structure = D @ K
+    H_u_sparsity_structure = K.T @ D @ K
+    # H_beta_sparsity_structure = K.T @ np.ones((M,1))
 
-    H_ = nabla_u_w.toarray()
+    H_ = W_u.toarray()
+    H_beta = W_beta
+
 
     row, col = np.nonzero(H_u_sparsity_structure)
     values = H_[row, col]
 
-    H_ = sp.coo_matrix((values, (row, col)), shape=H.shape)
-    indices = np.arange(nab_beta.size)
-    nabla_beta = sp.coo_matrix(
-        (nab_beta, (indices, np.zeros_like(indices))), shape=(nab_beta.size, 1)
-    )
-    return H_, nabla_beta
+    H_ = sp.coo_matrix((values, (row, col)), shape=W_u.shape)
+    H_beta = sp.coo_matrix((H_beta, (np.arange(H_beta.size), np.zeros_like(np.arange(H_beta.size)))), shape=(H_beta.size, 1))
+    # indices = np.arange(nab_beta.size)
+    # nabla_beta = sp.coo_matrix(
+    #     (nab_beta, (indices, np.zeros_like(indices))), shape=(nab_beta.size, 1)
+    # )
+    
+    return H_, H_beta
 
 
 def grad_u_j_rho(u, Kx, Ky, beta, delta_gamma, q, gamma, rho):
