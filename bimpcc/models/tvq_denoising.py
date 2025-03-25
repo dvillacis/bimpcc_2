@@ -5,7 +5,6 @@ from bimpcc.utils import generate_2D_gradient_matrices
 from bimpcc.utils_tvq import diagonal_j_rho, build_nabla_u
 from bimpcc.nlp import (
     ObjectiveFn,
-    PenalizedObjectiveFn,
     ConstraintFn,
     ComplementarityConstraintFn,
 )
@@ -79,81 +78,6 @@ class TVDenObjectiveFn(ObjectiveFn):
         # )
         # hess = sp.diags_array(d)
         return np.diag(d)
-
-
-class PenalizedTVDenObjectiveFn(PenalizedObjectiveFn):
-    def __init__(
-        self,
-        true_img: np.ndarray,
-        gradient_op: np.ndarray,
-        epsilon: float = 1e-4,
-        parameter_size: int = 1,
-        pi: float = 1.0,
-    ):
-        self.true_img = true_img.flatten()
-        self.K = gradient_op
-        self.M, self.N = gradient_op.shape
-        self.R = self.M // 2
-        self.epsilon = epsilon
-        self.parameter_size = parameter_size
-        super().__init__(pi)
-
-    def __call__(self, x: np.ndarray) -> float:
-        u, q, r, delta, theta, alpha = self.parse_vars(x)
-        # v = np.concatenate((q, r, delta, theta, alpha))
-        return (
-            0.5 * np.linalg.norm(u - self.true_img) ** 2
-            + self.pi * np.dot(alpha - delta, r)
-            + 0.5 * self.epsilon * np.linalg.norm(alpha) ** 2
-            # + 0.5 * self.epsilon * np.linalg.norm(v) ** 2
-        )
-
-    def parse_vars(self, x):
-        return _parse_vars(x, self.N, self.M)
-
-    def gradient(self, x: np.ndarray) -> float:
-        u, q, r, delta, theta, alpha = self.parse_vars(x)
-        # v = np.concatenate((q, r, delta, theta, alpha))
-        return np.concatenate(
-            (
-                u - self.true_img,
-                np.zeros(2 * self.R),
-                self.pi * (alpha - delta),
-                -self.pi * r,
-                np.zeros(self.R),
-                self.epsilon * alpha + self.pi * alpha,
-            )
-        )
-        # return np.concatenate((u - self.true_img, self.epsilon * v))
-
-    def hessian(self, x: np.ndarray) -> float:
-        """
-        The Hessian of the objective function.
-
-        Must return a full matrix dont know why exactly.
-        """
-        sz = self.N + 5 * self.R + self.parameter_size
-        A = np.zeros(sz, sz)
-        A[: self.N, : self.N] = np.eye(self.N)
-        A[
-            self.N + self.M : self.N + self.M + self.R,
-            self.N + self.M + self.R : self.N + self.M + 2 * self.R,
-        ] = -self.pi * np.eye(self.R)
-        A[
-            self.N + self.M + self.R : self.N + self.M + 2 * self.R,
-            self.N + self.M : self.N + self.M + self.R,
-        ] = -self.pi * np.eye(self.R)
-        A[self.N + self.M : self.N + self.M + self.R, -1] = (
-            self.epsilon + self.pi
-        ) * np.ones(self.R)
-        A[-1, -1] = self.epsilon + self.pi
-        # d = np.concatenate(
-        #     (
-        #         np.ones(self.N),
-        #         np.zeros(2 * self.R + self.parameter_size),
-        #     )
-        # )
-        return A
 
 
 class StateConstraintFn(ConstraintFn):
