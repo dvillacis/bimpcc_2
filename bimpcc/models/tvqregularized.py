@@ -5,6 +5,9 @@ from bimpcc.utils_reg import build_index_sets, build_jacobian_matrices
 from bimpcc.nlp import ObjectiveFn, ConstraintFn, OptimizationProblem
 from bimpcc.models.typings import Image
 
+# from scipy.sparse import bmat, identity, diags
+
+
 def _parse_vars(x: np.ndarray, N: int, M: int):
     return (
         x[:N],
@@ -29,10 +32,8 @@ class TVDenRegObjectiveFn(ObjectiveFn):
 
     def __call__(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
-        # v = np.concatenate((q, r, delta, theta, alpha))
         return (
             0.5 * np.linalg.norm(u - self.true_img) ** 2
-            # + 0.5 * self.epsilon * np.linalg.norm(v) ** 2
         )
         # return 0.5 * np.linalg.norm(u - self.true_img) ** 2 + self.epsilon * np.linalg.norm(alpha) ** 2
 
@@ -41,11 +42,9 @@ class TVDenRegObjectiveFn(ObjectiveFn):
 
     def gradient(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
-        # v = np.concatenate((q, r, delta, theta, alpha))
         return np.concatenate(
             (u - self.true_img, np.zeros(self.M + self.parameter_size))
         )
-        # return np.concatenate((u - self.true_img, self.epsilon * v))
 
     def hessian(self, x: np.ndarray) -> float:
         """
@@ -68,11 +67,21 @@ class StateConstraintFn(ConstraintFn):
         noisy_img: np.ndarray,
         gradient_op: np.ndarray,
         parameter_size: int = 1,
+        gamma: int = 100,
+        rho: float = 1e-3,
+        q_param: float = 0.99,
     ):
         self.noisy_img = noisy_img.flatten()
         self.gradient_op = gradient_op
         self.M, self.N = gradient_op.shape
         self.parameter_size = parameter_size
+        self.gamma = gamma
+        self.rho = rho
+        self.q_param = q_param
+        self.delta_gamma = (gamma**(1-q_param))*(q_param ** q_param)
+
+        
+
         self.Id = sp.eye(self.N).tocoo()
         self.KT = (self.gradient_op.T).tocoo()
         self.Z_P = sp.coo_matrix((self.N, self.parameter_size))
@@ -127,15 +136,6 @@ class DualConstraintFn(ConstraintFn):
         H_u, H_alpha = build_jacobian_matrices(
             self.gradient_op, u, q, alpha, self.gamma, self.M
         )
-        # jac = bmat(
-        #     [
-        #         [-H_u, identity(self.M), -H_alpha],
-        #     ]
-        # )
-        # # print(f"jacobian nonzero elements: {jac.nnz}")
-        # jac_matrix = jac.toarray()
-        # # print(f"jac_matrix shape: {jac_matrix.shape}")
-        # return jac_matrix.ravel()
         indices = np.arange(H_alpha.size)
         v_coo = sp.coo_matrix((H_alpha, (indices, np.zeros_like(indices))), shape=(H_alpha.size, 1))
 
@@ -143,12 +143,11 @@ class DualConstraintFn(ConstraintFn):
         jac = sp.hstack(
             [-H_u, self.Id, -v_coo]  # Matrices en columnas
         )
-        # print(jac.shape)
         # Convertir a formato COO para compatibilidad
         return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
 
 
-class TVRegularized:
+class TVqRegularized:
     def __init__(
         self,
         true_img: Image,
