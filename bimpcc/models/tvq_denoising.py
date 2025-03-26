@@ -148,7 +148,7 @@ class StateConstraintFn(ConstraintFn):
         noisy_img: np.ndarray,
         gradient_op: np.ndarray,
         parameter_size: int = 1,
-        q_param: int = 0.5,
+        q_param: float = 0.99,
         gamma_param: int = 100,
         rho: int = 0.001
     ):
