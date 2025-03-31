@@ -61,6 +61,53 @@ def _build_tensor(Ku, inv_normKu, Kx, Ky, INACT):
 
     return T_sparse
 
+class TVDeblurringObjectiveFn(ObjectiveFn):
+    def __init__(
+        self,
+        true_img: np.ndarray,
+        gradient_op: np.ndarray,
+        epsilon: float = 1e-4,
+        parameter_size: int = 1,
+    ):
+        self.true_img = true_img.flatten()
+        self.K = gradient_op
+        self.M, self.N = gradient_op.shape
+        self.R = self.M // 2
+        self.epsilon = epsilon
+        self.parameter_size = parameter_size
+        self.operator = A
+
+    def __call__(self, x: np.ndarray) -> float:
+        u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
+        v = np.concatenate((q, r, delta, theta, alpha))
+        return (
+            0.5 * np.linalg.norm(Au - self.true_img) ** 2
+            # + self.epsilon * np.linalg.norm(v) ** 2
+        )
+        # return 0.5 * np.linalg.norm(u - self.true_img) ** 2 + self.epsilon * np.linalg.norm(alpha) ** 2
+
+    def gradient(self, x: np.ndarray) -> float:
+        u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
+        # v = np.concatenate((q, r, delta, theta, alpha))
+        return np.concatenate(
+            (u - self.true_img, np.zeros(5 * self.R + self.parameter_size))
+        )
+
+    def hessian(self, x: np.ndarray) -> float:
+        """
+        The Hessian of the objective function.
+
+        Must return a full matrix dont know why exactly.
+        """
+        d = np.concatenate(
+            (
+                np.ones(self.N),
+                np.zeros(5 * self.R + self.parameter_size),
+            )
+        )
+        # hess = sp.diags_array(d)
+        return np.diag(d)
+
 
 class TVDenObjectiveFn(ObjectiveFn):
     def __init__(
@@ -122,10 +169,13 @@ class StateConstraintFn(ConstraintFn):
         self.KT = (self.gradient_op.T).tocoo()
         self.Z_R = sp.coo_matrix((self.N, self.R))
         self.Z_P = sp.coo_matrix((self.N, self.parameter_size))
+        # definición del operador 
+        # Operador Transformada de Fourier
+        self.Aoperator = np.fft.fft2(self.u)
 
     def __call__(self, x: np.ndarray) -> float:
         u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
-        return u - self.noisy_img + self.gradient_op.T @ q
+        return self.Aoperator@u - self.noisy_img + self.gradient_op.T @ q
 
     def jacobian(self, x: np.ndarray) -> float:
         jac = sp.hstack(
