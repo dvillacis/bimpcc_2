@@ -100,18 +100,19 @@ class DeblurringStateConstraintFn(ConstraintFn):
         self.psf = np.ones((5, 5)) / 25
         self.blur_img = blur_img
 
-
     def __call__(self, x: np.ndarray) -> float:
         u, q, r, delta, theta, alpha = self.parse_vars(x)
         u_matrix = u.reshape(int(np.sqrt(self.N)), int(np.sqrt(self.N)))
-        return gradient_f(u, self.psf, self.blur_img).flatten() + self.gradient_op.T @ q
+        blur_matrix = self.blur_img.reshape(int(np.sqrt(self.N)), int(np.sqrt(self.N)))
+        return gradient_f(u_matrix, self.psf, blur_matrix).flatten() + self.gradient_op.T @ q
 
     def parse_vars(self, x):
         return _parse_vars(x, self.N, self.M)
     
     def jacobian(self, x: np.ndarray) -> float:
-        jac_u = hessian_f(self.u_matrix, self.psf)
-        jac_u = jac_u.tocoo()
+        u, q, r, delta, theta, alpha = self.parse_vars(x)
+        u_matrix = u.reshape(int(np.sqrt(self.N)), int(np.sqrt(self.N)))
+        jac_u = sp.coo_matrix(hessian_f(u_matrix, self.psf))
         jac = sp.hstack(
             [
                 jac_u,  # u
