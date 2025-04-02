@@ -1,7 +1,15 @@
 import numpy as np
 import scipy.sparse as sp
-from bimpcc.nlp import OptimizationProblem, ConstraintFn, ObjectiveFn
+from bimpcc.models.model import MPCCModel, MPCCPenalizedModel
+from bimpcc.utils_recons import apply_blur, gradient_f, hessian_f
 from bimpcc.utils import generate_2D_gradient_matrices
+from bimpcc.nlp import (
+    ObjectiveFn,
+    PenalizedObjectiveFn,
+    ConstraintFn,
+    ComplementarityConstraintFn,
+)
+from bimpcc.models.typings import Image
 
 
 def _parse_vars(x: np.ndarray, N: int, M: int):
@@ -14,52 +22,6 @@ def _parse_vars(x: np.ndarray, N: int, M: int):
         x[N + M + (2 * R) : N + M + (3 * R)],
         x[N + M + (3 * R) :],
     )
-
-
-def _generate_index(u, gradient_op):
-    Ku = (gradient_op @ u).reshape(2, -1).T
-    normKu = np.apply_along_axis(np.linalg.norm, axis=1, arr=Ku)
-    act = np.where(normKu <= 1e-10, 1, 0)
-    inact = 1 - act
-    return act, inact
-
-
-def _compute_gradient(u, gradient_op):
-    Ku = gradient_op @ u
-    Ku_ = (gradient_op @ u).reshape(2, -1).T
-    normKu = np.apply_along_axis(np.linalg.norm, axis=1, arr=Ku_)
-    act = np.where(normKu <= 1e-10, 1, 0)
-    inact = 1 - act
-    inv_normKu = np.where(normKu <= 1e-10, 0, 1 / normKu)
-    return Ku, Ku_, normKu, inv_normKu, act, inact
-
-
-def _build_tensor(Ku, inv_normKu, Kx, Ky, INACT):
-    Kxu2 = Ku[:, 0] ** 2
-    Kyu2 = Ku[:, 1] ** 2
-    KxuKyu = Ku[:, 0] * Ku[:, 1]
-
-    a = INACT * inv_normKu
-    b = INACT * Kxu2 * (inv_normKu**3)
-    c = INACT * Kyu2 * (inv_normKu**3)
-    d = INACT * KxuKyu * (inv_normKu**3)
-
-    A = Kx.multiply(a[:, None])
-    B = Kx.multiply(b[:, None])
-    C = Ky.multiply(d[:, None])
-    D = Ky.multiply(a[:, None])
-    E = Ky.multiply(c[:, None])
-    F = Kx.multiply(d[:, None])
-
-    T = sp.vstack([A - B - C, D - E - F]).toarray()
-
-    pattern = sp.vstack([Kx + Ky, Kx + Ky]).toarray()
-
-    rows, cols = np.where(pattern != 0)
-    data = T[rows, cols]
-    T_sparse = sp.coo_matrix((data, (rows, cols)), shape=(2 * Ku.shape[0], Kx.shape[1]))
-
-    return T_sparse
 
 class TVDeblurringObjectiveFn(ObjectiveFn):
     def __init__(
@@ -75,22 +37,27 @@ class TVDeblurringObjectiveFn(ObjectiveFn):
         self.R = self.M // 2
         self.epsilon = epsilon
         self.parameter_size = parameter_size
-        self.operator = A
+        self.psf = np.ones((5, 5)) / 25
+
 
     def __call__(self, x: np.ndarray) -> float:
         u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
-        v = np.concatenate((q, r, delta, theta, alpha))
+        #v = np.concatenate((q, r, delta, theta, alpha))
+        u_matriz = u.reshape(self.N, self.N)
         return (
-            0.5 * np.linalg.norm(Au - self.true_img) ** 2
+            0.5 * np.linalg.norm(apply_blur(u_matriz, self.psf).flatten() - self.true_img) ** 2
             # + self.epsilon * np.linalg.norm(v) ** 2
         )
         # return 0.5 * np.linalg.norm(u - self.true_img) ** 2 + self.epsilon * np.linalg.norm(alpha) ** 2
 
     def gradient(self, x: np.ndarray) -> float:
         u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
+        u_matriz = u.reshape(self.N, self.N)
+        true_matrix = self.true_img.reshape(self.N, self.N)
+        grad_u = gradient_f(u_matriz, self.psf, true_matrix).flatten()
         # v = np.concatenate((q, r, delta, theta, alpha))
         return np.concatenate(
-            (u - self.true_img, np.zeros(5 * self.R + self.parameter_size))
+            (grad_u, np.zeros(5 * self.R + self.parameter_size))
         )
 
     def hessian(self, x: np.ndarray) -> float:
@@ -99,15 +66,51 @@ class TVDeblurringObjectiveFn(ObjectiveFn):
 
         Must return a full matrix dont know why exactly.
         """
+        hes_u = hessian_f(self.u, self.psf)
         d = np.concatenate(
             (
-                np.ones(self.N),
+                hes_u,
                 np.zeros(5 * self.R + self.parameter_size),
             )
         )
         # hess = sp.diags_array(d)
         return np.diag(d)
+    
+class DeblurringStateConstraintFn(ConstraintFn):
+    def __init__(
+        self: np.ndarray, gradient_op: np.ndarray, parameter_size: int = 1
+    ):
+        self.gradient_op = gradient_op
+        self.M, self.N = gradient_op.shape
+        self.R = self.M // 2
+        self.parameter_size = parameter_size
+        self.KT = (self.gradient_op.T).tocoo()
+        self.Z_R = sp.coo_matrix((self.N, self.R))
+        self.Z_P = sp.coo_matrix((self.N, self.parameter_size))
+        self.psf = np.ones((5, 5)) / 25
+        self.u_matriz = self.u.reshape(self.N, self.N)
+        self.blur_img = apply_blur(self.u_matriz, self.psf)
 
+
+    def __call__(self, x: np.ndarray) -> float:
+        u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
+        grad_u = gradient_f(self.u_matriz, self.psf, self.blur_imag).flatten()
+        return grad_u + self.gradient_op.T @ q
+
+    def jacobian(self, x: np.ndarray) -> float:
+        jac_u = hessian_f(self.u_matriz, self.psf)
+        jac_u = jac_u.tocoo()
+        jac = sp.hstack(
+            [
+                jac_u,  # u
+                self.KT,  # q
+                self.Z_R,  # r
+                self.Z_R,  # delta
+                self.Z_R,  # theta
+                self.Z_P,  # alpha
+            ]
+        )
+        return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
 
 class TVDenObjectiveFn(ObjectiveFn):
     def __init__(
@@ -125,20 +128,24 @@ class TVDenObjectiveFn(ObjectiveFn):
         self.parameter_size = parameter_size
 
     def __call__(self, x: np.ndarray) -> float:
-        u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
-        v = np.concatenate((q, r, delta, theta, alpha))
+        u, q, r, delta, theta, alpha = self.parse_vars(x)
+        # v = np.concatenate((q, r, delta, theta, alpha))
         return (
             0.5 * np.linalg.norm(u - self.true_img) ** 2
-            # + self.epsilon * np.linalg.norm(v) ** 2
+            # + 0.5 * self.epsilon * np.linalg.norm(v) ** 2
         )
         # return 0.5 * np.linalg.norm(u - self.true_img) ** 2 + self.epsilon * np.linalg.norm(alpha) ** 2
 
+    def parse_vars(self, x):
+        return _parse_vars(x, self.N, self.M)
+
     def gradient(self, x: np.ndarray) -> float:
-        u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
+        u, q, r, delta, theta, alpha = self.parse_vars(x)
         # v = np.concatenate((q, r, delta, theta, alpha))
         return np.concatenate(
             (u - self.true_img, np.zeros(5 * self.R + self.parameter_size))
         )
+        # return np.concatenate((u - self.true_img, self.epsilon * v))
 
     def hessian(self, x: np.ndarray) -> float:
         """
@@ -152,13 +159,97 @@ class TVDenObjectiveFn(ObjectiveFn):
                 np.zeros(5 * self.R + self.parameter_size),
             )
         )
+        # d = np.concatenate(
+        #     (
+        #         np.ones(self.N),
+        #         self.epsilon * np.ones(5 * self.R + self.parameter_size),
+        #     )
+        # )
         # hess = sp.diags_array(d)
         return np.diag(d)
 
 
+class PenalizedTVDenObjectiveFn(PenalizedObjectiveFn):
+    def __init__(
+        self,
+        true_img: np.ndarray,
+        gradient_op: np.ndarray,
+        epsilon: float = 1e-4,
+        parameter_size: int = 1,
+        pi: float = 1.0,
+    ):
+        self.true_img = true_img.flatten()
+        self.K = gradient_op
+        self.M, self.N = gradient_op.shape
+        self.R = self.M // 2
+        self.epsilon = epsilon
+        self.parameter_size = parameter_size
+        super().__init__(pi)
+
+    def __call__(self, x: np.ndarray) -> float:
+        u, q, r, delta, theta, alpha = self.parse_vars(x)
+        # v = np.concatenate((q, r, delta, theta, alpha))
+        return (
+            0.5 * np.linalg.norm(u - self.true_img) ** 2
+            + self.pi * np.dot(alpha - delta, r)
+            + 0.5 * self.epsilon * np.linalg.norm(alpha) ** 2
+            # + 0.5 * self.epsilon * np.linalg.norm(v) ** 2
+        )
+
+    def parse_vars(self, x):
+        return _parse_vars(x, self.N, self.M)
+
+    def gradient(self, x: np.ndarray) -> float:
+        u, q, r, delta, theta, alpha = self.parse_vars(x)
+        # v = np.concatenate((q, r, delta, theta, alpha))
+        return np.concatenate(
+            (
+                u - self.true_img,
+                np.zeros(2 * self.R),
+                self.pi * (alpha - delta),
+                -self.pi * r,
+                np.zeros(self.R),
+                self.epsilon * alpha + self.pi * alpha,
+            )
+        )
+        # return np.concatenate((u - self.true_img, self.epsilon * v))
+
+    def hessian(self, x: np.ndarray) -> float:
+        """
+        The Hessian of the objective function.
+
+        Must return a full matrix dont know why exactly.
+        """
+        sz = self.N + 5 * self.R + self.parameter_size
+        A = np.zeros(sz, sz)
+        A[: self.N, : self.N] = np.eye(self.N)
+        A[
+            self.N + self.M : self.N + self.M + self.R,
+            self.N + self.M + self.R : self.N + self.M + 2 * self.R,
+        ] = -self.pi * np.eye(self.R)
+        A[
+            self.N + self.M + self.R : self.N + self.M + 2 * self.R,
+            self.N + self.M : self.N + self.M + self.R,
+        ] = -self.pi * np.eye(self.R)
+        A[self.N + self.M : self.N + self.M + self.R, -1] = (
+            self.epsilon + self.pi
+        ) * np.ones(self.R)
+        A[-1, -1] = self.epsilon + self.pi
+        # d = np.concatenate(
+        #     (
+        #         np.ones(self.N),
+        #         np.zeros(2 * self.R + self.parameter_size),
+        #     )
+        # )
+        return A
+
+
 class StateConstraintFn(ConstraintFn):
     def __init__(
-        self, noisy_img: np.ndarray, gradient_op: np.ndarray, parameter_size: int = 1
+        self,
+        noisy_img: np.ndarray,
+        gradient_op: np.ndarray,
+        parameter_size: int = 1,
     ):
         self.noisy_img = noisy_img.flatten()
         self.gradient_op = gradient_op
@@ -169,13 +260,13 @@ class StateConstraintFn(ConstraintFn):
         self.KT = (self.gradient_op.T).tocoo()
         self.Z_R = sp.coo_matrix((self.N, self.R))
         self.Z_P = sp.coo_matrix((self.N, self.parameter_size))
-        # definición del operador 
-        # Operador Transformada de Fourier
-        self.Aoperator = np.fft.fft2(self.u)
 
     def __call__(self, x: np.ndarray) -> float:
-        u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
-        return self.Aoperator@u - self.noisy_img + self.gradient_op.T @ q
+        u, q, r, delta, theta, alpha = self.parse_vars(x)
+        return u - self.noisy_img + self.gradient_op.T @ q
+
+    def parse_vars(self, x):
+        return _parse_vars(x, self.N, self.M)
 
     def jacobian(self, x: np.ndarray) -> float:
         jac = sp.hstack(
@@ -203,12 +294,15 @@ class PrimalConstraintFn(ConstraintFn):
         self.Z_P = sp.coo_matrix((self.M, self.parameter_size))
 
     def __call__(self, x: np.ndarray) -> float:
-        u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
+        u, q, r, delta, theta, alpha = self.parse_vars(x)
         r_theta = np.concatenate((r * np.cos(theta), r * np.sin(theta)))
         return self.gradient_op @ u - r_theta
 
+    def parse_vars(self, x):
+        return _parse_vars(x, self.N, self.M)
+
     def jacobian(self, x: np.ndarray) -> float:
-        u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
+        u, q, r, delta, theta, alpha = self.parse_vars(x)
         ct = np.cos(theta)
         st = np.sin(theta)
 
@@ -254,12 +348,15 @@ class DualConstraintFn(ConstraintFn):
         self.Z_P = sp.coo_matrix((self.M, self.parameter_size))
 
     def __call__(self, x: np.ndarray) -> float:
-        u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
+        u, q, r, delta, theta, alpha = self.parse_vars(x)
         delta_theta = np.concatenate((delta * np.cos(theta), delta * np.sin(theta)))
         return q - delta_theta
 
+    def parse_vars(self, x):
+        return _parse_vars(x, self.N, self.M)
+
     def jacobian(self, x: np.ndarray) -> float:
-        u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
+        u, q, r, delta, theta, alpha = self.parse_vars(x)
         ct = np.cos(theta)
         st = np.sin(theta)
 
@@ -302,8 +399,11 @@ class BoundConstraintFn(ConstraintFn):
         self.Id = sp.diags(np.ones(self.R), format="coo")
 
     def __call__(self, x: np.ndarray) -> float:
-        u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
+        u, q, r, delta, theta, alpha = self.parse_vars(x)
         return alpha - delta
+
+    def parse_vars(self, x):
+        return _parse_vars(x, self.N, self.M)
 
     def jacobian(self, x: np.ndarray) -> float:
         # if self.parameter_size == 1:
@@ -325,25 +425,28 @@ class BoundConstraintFn(ConstraintFn):
         return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
 
 
-class ComplementarityConstraintFn(ConstraintFn):
-    def __init__(self, M, N, parameter_size: int = 1, t=1e-1):
+class TVDenComplementarityConstraintFn(ComplementarityConstraintFn):
+    def __init__(self, M: int, N: int, t: float = 1.0, parameter_size: int = 1):
         self.M = M
         self.N = N
         self.R = M // 2
-        self.t = t
         self.parameter_size = parameter_size
         self.Z_N = sp.coo_matrix((self.R, self.N))
         self.Z_M = sp.coo_matrix((self.R, self.M))
         self.Z_R = sp.coo_matrix((self.R, self.R))
         self.Id = sp.diags(np.ones(self.R), format="coo")
+        self.t = t
 
     def __call__(self, x: np.ndarray) -> float:
-        u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
-        return self.t - r * (alpha - delta)
+        u, q, r, delta, theta, alpha = self.parse_vars(x)
+        return self.t - (r * (alpha - delta))
+
+    def parse_vars(self, x):
+        return _parse_vars(x, self.N, self.M)
 
     def jacobian(self, x: np.ndarray) -> float:
-        u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
-        Jalpha = sp.coo_matrix((np.ones(self.R), (np.arange(self.R), [0] * self.R)))
+        u, q, r, delta, theta, alpha = self.parse_vars(x)
+        Jalpha = sp.coo_matrix((r*np.ones(self.R), (np.arange(self.R), [0] * self.R)))
         Jr = sp.coo_matrix((alpha - delta, (np.arange(self.R), np.arange(self.R))))
         Jdelta = sp.coo_matrix((r, (np.arange(self.R), np.arange(self.R))))
         # Jalpha = sp.coo_matrix((r, (np.arange(self.R), np.arange(self.R))))
@@ -360,53 +463,127 @@ class ComplementarityConstraintFn(ConstraintFn):
         return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
 
 
-class TVDenoising:
-    def __init__(self, true_img, noisy_img, gamma=100, epsilon=1e-5):
-        self.true_img = true_img.flatten()
-        self.noisy_img = noisy_img.flatten()
-        self.gamma = gamma
-        self.epsilon = epsilon
-        self.Kx, self.Ky, self.K = generate_2D_gradient_matrices(true_img.shape[0])
-        self.M, self.N = self.K.shape
-        self.R = self.M // 2
-        self.nlp = OptimizationProblem(
-            TVDenObjectiveFn(self.true_img, self.K, epsilon),
-            eq_constraint_funcs=[
-                StateConstraintFn(self.noisy_img, self.K),
-                PrimalConstraintFn(self.K),
-                DualConstraintFn(self.K, self.Kx, self.Ky),
-            ],
-            ineq_constraint_funcs=[
-                BoundConstraintFn(self.M, self.N),
-                ComplementarityConstraintFn(self.M, self.N, t=1.0),
-            ],
+class TVReconstruct(MPCCModel):
+    def __init__(
+        self,
+        true_img: Image,
+        blur_img: Image,
+        epsilon: float = 1e-5,
+        t_init: float = 1.0,
+        x0: np.ndarray = None,
+        parameter_size: int = 1,
+    ):
+        Kx, Ky, self.K = generate_2D_gradient_matrices(true_img.shape[0])
+        true_img = true_img.flatten()
+        blur_img = blur_img.flatten()
+
+        M, N = self.K.shape
+        R = M // 2
+        objective_func = TVDeblurringObjectiveFn(true_img, self.K, epsilon=epsilon)
+        eq_constraint_funcs = [
+            DeblurringStateConstraintFn(blur_img, self.K),
+            PrimalConstraintFn(self.K),
+            DualConstraintFn(self.K, Kx, Ky),
+        ]
+        ineq_constraint_funcs = [BoundConstraintFn(M, N)]
+        # ineq_constraint_funcs = []
+
+        u_bounds = [(0, None)] * N
+        q_bounds = [(None, None)] * M
+        r_bounds = [(0, None)] * R
+        delta_bounds = [(0.001, None)] * R
+        theta_bounds = [(None, None)] * R
+        alpha_bounds = [(0.0, None)] * (parameter_size)
+        bounds = (
+            u_bounds + q_bounds + r_bounds + delta_bounds + theta_bounds + alpha_bounds
         )
 
-    def parse_vars(self, x):
-        return _parse_vars(x, self.N, self.M)
-
-    def solve(self, x0=None, bounds=None, parameter_size: int = 1, print_level=0):
         if x0 is None:
-            u0 = self.noisy_img
-            q0 = 0.01 * np.ones(self.M)
-            r0 = 0.01 * np.ones(self.R)
-            delta0 = 0.01 * np.ones(self.R)
-            theta0 = 0.01 * np.ones(self.R)
-            alpha0 = 0.01 * np.ones(1)
-            x0 = np.concatenate((u0, q0, r0, delta0, theta0, alpha0))
-        if bounds is None:
-            u_bounds = [(0, None)] * (self.N)
-            q_bounds = [(None, None)] * (self.M)
-            r_bounds = [(0, None)] * (self.R)
-            delta_bounds = [(0, None)] * (self.R)
-            theta_bounds = [(None, None)] * (self.R)
-            alpha_bounds = [(0, None)] * (parameter_size)
-            bounds = (
-                u_bounds
-                + q_bounds
-                + r_bounds
-                + delta_bounds
-                + theta_bounds
-                + alpha_bounds
+            x0 = np.concatenate(
+                [
+                    noisy_img,
+                    # np.random.randn(N),
+                    1e-3 * np.ones(M),
+                    1e-3 * np.ones(R),
+                    1e-3 * np.ones(R),
+                    1e-3 * np.ones(R),
+                    1e-3 * np.ones(parameter_size),
+                ]
             )
-        return self.nlp.solve(x0, bounds, print_level=print_level)
+
+        super().__init__(
+            objective_func=objective_func,
+            eq_constraint_funcs=eq_constraint_funcs,
+            ineq_constraint_funcs=ineq_constraint_funcs,
+            complementarity_constraint_func=TVDenComplementarityConstraintFn(M, N),
+            bounds=bounds,
+            t_init=t_init,
+            x0=x0,
+        )
+
+    def compute_complementarity(self, x):
+        u, q, r, delta, theta, alpha = self.objective_func.parse_vars(x)
+        return np.linalg.norm(np.minimum(r, alpha - delta))
+
+
+class PenalizedTVDenoisingMPCC(MPCCPenalizedModel):
+    def __init__(
+        self,
+        true_img: Image,
+        blur_img: Image,
+        epsilon: float = 1e-5,
+        pi_init: float = 1.0,
+        x0: np.ndarray = None,
+        parameter_size: int = 1,
+    ):
+        Kx, Ky, K = generate_2D_gradient_matrices(true_img.shape[0])
+        true_img = true_img.flatten()
+        blur_img = blur_img.flatten()
+
+        M, N = K.shape
+        R = M // 2
+        objective_func = TVDeblurringObjectiveFn(true_img, self.K, epsilon=epsilon)
+        eq_constraint_funcs = [
+            DeblurringStateConstraintFn(blur_img, self.K),
+            PrimalConstraintFn(self.K),
+            DualConstraintFn(self.K, Kx, Ky),
+        ]
+        ineq_constraint_funcs = [BoundConstraintFn(M, N)]
+
+        u_bounds = [(0, None)] * N
+        q_bounds = [(None, None)] * M
+        r_bounds = [(0, None)] * R
+        delta_bounds = [(0, None)] * R
+        theta_bounds = [(None, None)] * R
+        alpha_bounds = [(0, None)] * (parameter_size)
+        bounds = (
+            u_bounds + q_bounds + r_bounds + delta_bounds + theta_bounds + alpha_bounds
+        )
+
+        if x0 is None:
+            x0 = np.concatenate(
+                [
+                    noisy_img,
+                    # np.random.randn(N),
+                    1e-1 * np.ones(M),
+                    1e-1 * np.ones(R),
+                    1e-1 * np.ones(R),
+                    1e-1 * np.ones(R),
+                    1e-1 * np.ones(parameter_size),
+                ]
+            )
+
+        super().__init__(
+            objective_func=objective_func,
+            eq_constraint_funcs=eq_constraint_funcs,
+            ineq_constraint_funcs=ineq_constraint_funcs,
+            bounds=bounds,
+            pi_init=pi_init,
+            x0=x0,
+        )
+
+    def compute_complementarity(self, x):
+        u, q, r, delta, theta, alpha = self.objective_func.parse_vars(x)
+        # return np.dot(r, alpha - delta)
+        return np.linalg.norm(np.minimum(r, alpha - delta))
+
