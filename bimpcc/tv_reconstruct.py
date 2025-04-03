@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.sparse as sp
 from bimpcc.models.model import MPCCModel, MPCCPenalizedModel
-from bimpcc.utils_recons import apply_blur, gradient_f, hessian_f
+from bimpcc.utils_recons import apply_blur, gradient_f, hessian_matrix
 from bimpcc.utils import generate_2D_gradient_matrices
 from bimpcc.nlp import (
     ObjectiveFn,
@@ -39,7 +39,7 @@ class TVDeblurringObjectiveFn(ObjectiveFn):
         self.epsilon = epsilon
         self.parameter_size = parameter_size
         super().__init__(pi)
-        self.psf = np.ones((5, 5)) / 25
+        self.psf = np.ones((3, 3)) /9
 
 
     def __call__(self, x: np.ndarray) -> float:
@@ -71,7 +71,7 @@ class TVDeblurringObjectiveFn(ObjectiveFn):
 
         Must return a full matrix dont know why exactly.
         """
-        hes_u = hessian_f(self.u, self.psf)
+        hes_u = hessian_matrix(self.u, self.psf)
         d = np.concatenate(
             (
                 hes_u,
@@ -97,7 +97,7 @@ class DeblurringStateConstraintFn(ConstraintFn):
         self.KT = (self.gradient_op.T).tocoo()
         self.Z_R = sp.coo_matrix((self.N, self.R))
         self.Z_P = sp.coo_matrix((self.N, self.parameter_size))
-        self.psf = np.ones((5, 5)) / 25
+        self.psf = np.ones((3, 3)) / 9
         self.blur_img = blur_img
 
     def __call__(self, x: np.ndarray) -> float:
@@ -112,7 +112,7 @@ class DeblurringStateConstraintFn(ConstraintFn):
     def jacobian(self, x: np.ndarray) -> float:
         u, q, r, delta, theta, alpha = self.parse_vars(x)
         u_matrix = u.reshape(int(np.sqrt(self.N)), int(np.sqrt(self.N)))
-        jac_u = sp.coo_matrix(hessian_f(u_matrix, self.psf))
+        jac_u = (hessian_matrix(self.psf, u_matrix)).tocoo()
         jac = sp.hstack(
             [
                 jac_u,  # u
