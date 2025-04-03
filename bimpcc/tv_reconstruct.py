@@ -39,7 +39,7 @@ class TVDeblurringObjectiveFn(ObjectiveFn):
         self.epsilon = epsilon
         self.parameter_size = parameter_size
         super().__init__(pi)
-        self.psf = gaussian_psf(3,0.5)
+        self.psf = gaussian_psf(7,1)
 
 
     def __call__(self, x: np.ndarray) -> float:
@@ -99,7 +99,7 @@ class DeblurringStateConstraintFn(ConstraintFn):
         self.KT = (self.gradient_op.T).tocoo()
         self.Z_R = sp.coo_matrix((self.N, self.R))
         self.Z_P = sp.coo_matrix((self.N, self.parameter_size))
-        self.psf = gaussian_psf(3,0.5)
+        self.psf = gaussian_psf(7,1)
         self.blur_img = blur_img
 
     def __call__(self, x: np.ndarray) -> float:

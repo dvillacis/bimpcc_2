@@ -21,7 +21,7 @@ def gradient_f(u, psf, u_true):
     Au = apply_blur(u, psf)  # Aplicar A (convolución con PSF)
     residual = Au - u_true  # Diferencia
     psf_adj = np.flip(psf)  # A^T = convolución con PSF rotada 180°
-    return scipy.signal.convolve2d(residual, psf_adj, mode='same', boundary='wrap')
+    return scipy.signal.convolve2d(residual, psf_adj, mode='same', boundary='symm')
 
 def convolution_matrix(psf, u):
     """Construye la matriz de convolución A para imágenes vectorizadas"""
@@ -35,7 +35,7 @@ def convolution_matrix(psf, u):
     for i in range(N):
         impulse = np.zeros((H, W))
         impulse[i // W, i % W] = 1  # Activar un solo píxel
-        conv_result = scipy.signal.convolve2d(impulse, psf, mode='same', boundary='wrap')
+        conv_result = scipy.signal.convolve2d(impulse, psf, mode='same', boundary='symm')
         A[:, i] = conv_result.flatten()  # Guardar en la matriz A
 
     return A.tocsr()  # Convertir a formato disperso eficiente
