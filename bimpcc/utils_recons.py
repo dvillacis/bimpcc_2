@@ -45,3 +45,10 @@ def hessian_matrix(psf, u):
     A = convolution_matrix(psf, u)  # Obtener A
     H_f = A.T @ A  # Calcular A^T A
     return H_f
+
+def gaussian_psf(size, sigma):
+    """Genera un kernel gaussiano 2D de tamaño `size x size` y desviación `sigma`"""
+    ax = np.linspace(-(size // 2), size // 2, size)
+    xx, yy = np.meshgrid(ax, ax)
+    kernel = np.exp(-(xx**2 + yy**2) / (2 * sigma**2))
+    return kernel / np.sum(kernel)  # Normalizar

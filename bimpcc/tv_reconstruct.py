@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.sparse as sp
 from bimpcc.models.model import MPCCModel, MPCCPenalizedModel
-from bimpcc.utils_recons import apply_blur, gradient_f, hessian_matrix
+from bimpcc.utils_recons import apply_blur, gradient_f, hessian_matrix, gaussian_psf
 from bimpcc.utils import generate_2D_gradient_matrices
 from bimpcc.nlp import (
     ObjectiveFn,
@@ -39,7 +39,7 @@ class TVDeblurringObjectiveFn(ObjectiveFn):
         self.epsilon = epsilon
         self.parameter_size = parameter_size
         super().__init__(pi)
-        self.psf = np.ones((3, 3)) /9
+        self.psf = gaussian_psf(3,0.5)
 
 
     def __call__(self, x: np.ndarray) -> float:
@@ -71,7 +71,9 @@ class TVDeblurringObjectiveFn(ObjectiveFn):
 
         Must return a full matrix dont know why exactly.
         """
-        hes_u = hessian_matrix(self.u, self.psf)
+        u, q, r, delta, theta, alpha = _parse_vars(x, self.N, self.M)
+        u_matrix = u.reshape(int(np.sqrt(self.N)), int(np.sqrt(self.N)))
+        hes_u = hessian_matrix(self.psf, u_matrix)
         d = np.concatenate(
             (
                 hes_u,
@@ -97,7 +99,7 @@ class DeblurringStateConstraintFn(ConstraintFn):
         self.KT = (self.gradient_op.T).tocoo()
         self.Z_R = sp.coo_matrix((self.N, self.R))
         self.Z_P = sp.coo_matrix((self.N, self.parameter_size))
-        self.psf = np.ones((3, 3)) / 9
+        self.psf = gaussian_psf(3,0.5)
         self.blur_img = blur_img
 
     def __call__(self, x: np.ndarray) -> float:
@@ -539,7 +541,7 @@ class TVReconstruct(MPCCModel):
         return np.linalg.norm(np.minimum(r, alpha - delta))
 
 
-class PenalizedTVDenoisingMPCC(MPCCPenalizedModel):
+class PenalizedTVDebluringMPCC(MPCCPenalizedModel):
     def __init__(
         self,
         true_img: Image,
@@ -576,7 +578,7 @@ class PenalizedTVDenoisingMPCC(MPCCPenalizedModel):
         if x0 is None:
             x0 = np.concatenate(
                 [
-                    noisy_img,
+                    blur_img,
                     # np.random.randn(N),
                     1e-1 * np.ones(M),
                     1e-1 * np.ones(R),
