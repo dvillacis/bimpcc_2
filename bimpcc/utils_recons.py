@@ -20,8 +20,7 @@ def gradient_f(u, psf, u_true):
     """ Calcula el gradiente de f(u) = (1/2) * ||Au - u_true||^2. """
     Au = apply_blur(u, psf)  # Aplicar A (convolución con PSF)
     residual = Au - u_true  # Diferencia
-    psf_adj = np.flip(psf)  # A^T = convolución con PSF rotada 180°
-    return scipy.signal.convolve2d(residual, psf_adj, mode='same', boundary='symm')
+    return scipy.signal.convolve2d(residual, psf, mode='same', boundary='symm')
 
 def convolution_matrix(psf, u):
     """Construye la matriz de convolución A para imágenes vectorizadas"""
