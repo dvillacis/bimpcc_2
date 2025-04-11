@@ -11,11 +11,18 @@ def load_and_scale_image(image_path, target_pixels, add_noise=False, add_blur=Fa
     grayscale_image = np.array(resized_image) / np.max(resized_image)
     
     if add_noise:
-        np.random.seed(0)
-        noise = 0.05*np.random.randn(target_pixels, target_pixels)
+        # np.random.seed(0)
+        # noise = 0.05*np.random.randn(target_pixels, target_pixels)
         # noisy_image = grayscale_image + noise
         # noisy_image = np.clip(noisy_image, 0, 1)
-        grayscale_image += noise
+        # grayscale_image += noise
+        mean = 0
+        std = 0.2
+        np.random.seed(0)
+        noise = 0.05*np.random.randn(target_pixels, target_pixels)
+        noisy_image = grayscale_image + noise
+        noisy_image = np.clip(noisy_image, 0, 1)
+        grayscale_image = noisy_image
 
     if add_blur:
         # kernel = np.array([[1, 2, 1], [2, 4, 2], [1, 2, 1]]) / 16
