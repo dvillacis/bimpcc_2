@@ -46,7 +46,7 @@ class TVReconsRegObjectiveFn(ObjectiveFn):
         u, q, alpha = self.parse_vars(x)
         residual = self.forward_map @ u - self.true_img
         return np.concatenate(
-            (self.forward_map @ residual, np.zeros(self.M + self.parameter_size))
+            (self.forward_map.T @ residual, np.zeros(self.M + self.parameter_size))
         )
 
     def hessian(self, x: np.ndarray) -> float:
@@ -85,7 +85,7 @@ class ReconsStateConstraintFn(ConstraintFn):
     def __call__(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
         residual = self.forward_map @ u - self.noisy_img
-        return self.forward_map @ residual + self.gradient_op.T @ q
+        return self.forward_map.T @ residual + self.gradient_op.T @ q
 
     def parse_vars(self, x):
         return _parse_vars(x, self.N, self.M)
