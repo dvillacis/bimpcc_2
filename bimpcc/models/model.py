@@ -51,7 +51,9 @@ class MPCCModel(ABC):
             "print_level": print_level,
             "tol": tol,
             "max_iter": max_iter,
-            "acceptable_tol": tol,
+            "acceptable_tol": 1e-5,
+            "constr_viol_tol": 1e-5,
+            "nlp_scaling_method": "gradient-based",
         }
         return nlp.solve(x0, bounds, options=options)
 
@@ -60,7 +62,7 @@ class MPCCModel(ABC):
         t_min: float = 1e-5,
         max_iter: int = 10,
         tol: float = 1e-3,
-        nlp_tol: float = 1e-8,
+        nlp_tol: float = 1e-6,
         nlp_max_iter: int = 5000,
         verbose: bool = False,
         print_level: int = 0,
