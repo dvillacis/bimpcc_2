@@ -1,7 +1,7 @@
 experiment:
   dataset: 
     dataset_name: cameraman
-    dataset__img_size: [8, 16]
+    dataset__img_size: [8, 16, 20]
   model:
     model_name: bimpcc.models.tvdenoising_model.TVDenoisingMPCC
     model_reg_name: bimpcc.models.tvregularized.TVRegularized
