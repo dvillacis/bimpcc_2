@@ -94,6 +94,7 @@ class MPCCModel(ABC):
                     f'{k: > 5}*\t{res["status"]: > 15}\t{fn: > 15}\t{
                 comp: > 15}\t{t: > 15}'
                 )
+                res["iter"] = k 
                 return res, x_, fn
             # status = ""
             if res["status"] >= 0:
@@ -116,6 +117,7 @@ class MPCCModel(ABC):
         print(
             f"* (STOPPED) Iteration {k+1}: Solving the NLP problem for t = {t} with complementarity: {self.compute_complementarity(x)}"
         )
+        res["iter"] = k + 1 
         return res, x, fn
 
 

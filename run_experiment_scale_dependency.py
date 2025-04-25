@@ -1,5 +1,8 @@
 import yaml
 import importlib
+import pandas as pd
+import h5py
+import os
 from bimpcc.dataset_experiments import get_dataset
 import matplotlib.pyplot as plt
 from skimage.metrics import peak_signal_noise_ratio as psnr
@@ -53,12 +56,56 @@ def load_class(path: str):
     module = importlib.import_module(module_path)
     return getattr(module, class_name)
 
-def generate_tables():
-    pass
+def generate_tables(h5_path="outputs/results_mpcc_vs_img_size.h5",
+    plot_output="outputs/iterations_vs_img_size.png",
+    latex_output="outputs/tabla_iteraciones.tex"):
+    if not os.path.exists(h5_path):
+        print(f"Archivo HDF5 no encontrado: {h5_path}")
+        return
+
+    data = []
+
+    with h5py.File(h5_path, "r") as h5f:
+        for group_name in h5f.keys():
+            if group_name.startswith("img_size_"):
+                try:
+                    img_size = int(group_name.replace("img_size_", ""))
+                    iterations = int(h5f[group_name]["iterations"][()])
+                    data.append({"img_size": img_size, "iterations": iterations})
+                except KeyError as e:
+                    print(f"Faltan datos en {group_name}: {e}")
+                except Exception as e:
+                    print(f"Error leyendo {group_name}: {e}")
+
+    if data:
+        df = pd.DataFrame(data).sort_values(by="img_size")
+
+        # sGraficar
+        plt.figure(figsize=(8, 5))
+        plt.plot(df["img_size"], df["iterations"], marker='o')
+        plt.xlabel("Tamaño de imagen (img_size)")
+        plt.ylabel("Número de iteraciones")
+        plt.title("Iteraciones vs Tamaño de Imagen")
+        plt.grid(True)
+        plt.savefig(plot_output)
+        plt.show()
+        print(f"Gráfico guardado en {plot_output}")
+
+        # Crear código LaTeX
+        latex_code = df.to_latex(index=False, caption="Número de iteraciones por tamaño de imagen", label="tab:iteraciones")
+
+        # Guardar código en archivo .tex
+        with open(latex_output, "w") as f:
+            f.write(latex_code)
+        print(f"Código LaTeX guardado en {latex_output}")
+    else:
+        print("No se encontraron datos de iteraciones.")
 
 def generate_figures():
     pass
 
+output_file = "results_mpcc_vs_img_size.h5"
+os.makedirs("outputs", exist_ok=True)
 
 if __name__ == "__main__":
     with open(config_path, "r") as f:
@@ -101,8 +148,18 @@ if __name__ == "__main__":
         res_mpcc,x_opt_mpcc,fun_opt_mpcc = model_mpcc_instance.solve(max_iter=model_config["max_iter"],tol=float(model_config["tol"]),print_level=0,verbose=True,beta=0.7)
         u_mpcc, q_mpcc, r_mpcc, delta_mpcc, theta_mpcc, alpha_mpcc = model_mpcc_instance.objective_func.parse_vars(x_opt_mpcc)
         u_mpcc = u_mpcc.reshape((img_size,img_size))
-        plot_experiment(true,noisy,u_mpcc,alpha_mpcc)
+        print("res_mpcc:", res_mpcc) #para ver qué guarda res_mpcc
+
+        with h5py.File(os.path.join("outputs", output_file), "a") as h5f:
+            group = h5f.require_group(f"img_size_{img_size}")
+
+            group.create_dataset("iterations", data=res_mpcc["iter"])
+            group.create_dataset("fun_opt", data=fun_opt_mpcc)
+            group.create_dataset("u_mpcc", data=u_mpcc)
+            group.create_dataset("alpha_mpcc", data=alpha_mpcc)
+            group.create_dataset("theta_mpcc", data=theta_mpcc)
+            group.create_dataset("r_mpcc", data=r_mpcc)
+            group.create_dataset("delta_mpcc", data=delta_mpcc)
 
 
-
-    
+    generate_tables()
