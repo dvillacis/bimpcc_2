@@ -1,12 +1,10 @@
 experiment:
   dataset: 
     dataset_name: cameraman
-    dataset__img_size: [8, 16, 20, 40]
+    dataset__img_size: [8]
   model:
     model_name: bimpcc.models.tvdenoising_model.TVDenoisingMPCC
-    model_reg_name: bimpcc.models.tvregularized.TVRegularized
     model_epsilon: 1e-3
     tol: 1e-4
-    max_iter_reg: 3000
-    max_iter: 100 #iteraciones del mpcc total
+    max_iter: 40 #iteraciones del mpcc total
     beta: 0.7

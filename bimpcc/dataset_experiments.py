@@ -71,11 +71,11 @@ def get_dataset(dataset_name, scale=256, folder='datasets'):
     
 def get_blur_dataset(dataset_name, scale=256, folder='datasets'):
     if dataset_name == 'cameraman':
-        return BlurDataset(f'../{folder}/cameraman/cameraman.png', scale)
+        return BlurDataset(f'{folder}/cameraman/cameraman.png', scale)
     elif dataset_name == 'wood':
-        return BlurDataset(f'../{folder}/wood/wood.png', scale)
+        return BlurDataset(f'{folder}/wood/wood.png', scale)
     elif dataset_name == 'circle':
-        return BlurDataset(f'../{folder}/circle/circle.png', scale)
+        return BlurDataset(f'{folder}/circle/circle.png', scale)
     elif dataset_name == 'synthetic':
         return Synthetic(scale)
     else:
