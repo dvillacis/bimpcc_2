@@ -32,6 +32,7 @@ class MPCCModel(ABC):
         self.bounds = bounds
         self.t = t_init
         self.x0 = x0
+        self.comp = None
 
     @abstractmethod
     def compute_complementarity(self, x: np.ndarray) -> float:
@@ -88,11 +89,11 @@ class MPCCModel(ABC):
             res, x_, fn = self._solve_nlp(
                 x, self.bounds, t, tol=nlp_tol, print_level=print_level, max_iter=nlp_max_iter
             )
-            comp = self.compute_complementarity(x_)
-            if np.abs(comp) < tol:
+            self.comp = self.compute_complementarity(x_)
+            if np.abs(self.comp) < tol:
                 print(
                     f'{k: > 5}*\t{res["status"]: > 15}\t{fn: > 15}\t{
-                comp: > 15}\t{t: > 15}'
+                self.comp: > 15}\t{t: > 15}'
                 )
                 res["iter"] = k 
                 return res, x_, fn
@@ -107,7 +108,7 @@ class MPCCModel(ABC):
             if verbose:
                 print(
                     f'{k: > 5}\t{res["status"]: > 15}\t{fn: > 15}\t{
-                comp: > 15}\t{t: > 15}'
+                self.comp: > 15}\t{t: > 15}'
                 )
                 # print(
                 #     f"* Iteration {k+1} {status}: Solving the NLP problem for t = {t} with fn: {fn}, complementarity: {self.compute_complementarity(x)}"

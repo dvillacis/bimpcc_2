@@ -5,13 +5,13 @@ from abc import ABC
 from bimpcc.utils import gaussian_blur_sparse_matrix_symmetric
 
 
-def load_and_scale_image(image_path, target_pixels, add_noise=False, add_blur=False)->np.ndarray:
+def load_and_scale_image(image_path, target_pixels, add_noise=False, add_blur=False, random_state=None)->np.ndarray:
     image = Image.open(image_path).convert('L')
     resized_image = image.resize((target_pixels, target_pixels))
     grayscale_image = np.array(resized_image) / np.max(resized_image)
     
     if add_noise:
-        np.random.seed(0)
+        np.random.seed(random_state)
         noise = 0.05*np.random.randn(target_pixels, target_pixels)
         grayscale_image += noise
         
@@ -30,10 +30,10 @@ def load_and_scale_image(image_path, target_pixels, add_noise=False, add_blur=Fa
     return grayscale_image
 
 class Dataset(ABC):
-    def __init__(self, path, scale=256):
+    def __init__(self, path, scale=256, random_state=None):
         self.scale = scale
         self.img_true = load_and_scale_image(path, scale)
-        self.img_noisy = load_and_scale_image(path, scale, add_noise=True)
+        self.img_noisy = load_and_scale_image(path, scale, add_noise=True, random_state=random_state)
     
     def get_training_data(self):
         return self.img_true, self.img_noisy
@@ -57,13 +57,13 @@ class Synthetic:
     def get_training_data(self):
         return self.img_true, self.img_noisy
 
-def get_dataset(dataset_name, scale=256, folder='datasets'):
+def get_dataset(dataset_name, scale=256, folder='datasets', random_state=None):
     if dataset_name == 'cameraman':
-        return Dataset(f'../{folder}/cameraman/cameraman.png', scale)
+        return Dataset('datasets/cameraman/cameraman.png', scale)
     elif dataset_name == 'wood':
-        return Dataset(f'../{folder}/wood/wood.png', scale)
+        return Dataset('datasets/wood/wood.png', scale)
     elif dataset_name == 'circle':
-        return Dataset(f'../{folder}/circle/circle.png', scale)
+        return Dataset('datasets/circle/circle.png', scale)
     elif dataset_name == 'synthetic':
         return Synthetic(scale)
     else:
@@ -71,11 +71,11 @@ def get_dataset(dataset_name, scale=256, folder='datasets'):
     
 def get_blur_dataset(dataset_name, scale=256, folder='datasets'):
     if dataset_name == 'cameraman':
-        return BlurDataset(f'../{folder}/cameraman/cameraman.png', scale)
+        return BlurDataset('datasets/cameraman/cameraman.png', scale)
     elif dataset_name == 'wood':
-        return BlurDataset(f'../{folder}/wood/wood.png', scale)
+        return BlurDataset('datasets/wood/wood.png', scale)
     elif dataset_name == 'circle':
-        return BlurDataset(f'../{folder}/circle/circle.png', scale)
+        return BlurDataset('datasets/circle/circle.png', scale)
     elif dataset_name == 'synthetic':
         return Synthetic(scale)
     else:
