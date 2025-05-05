@@ -108,14 +108,16 @@ def run_single_experiment(combo):
     u_mpcc, q_mpcc, r_mpcc, delta_mpcc, theta_mpcc, alpha_mpcc = model_mpcc_instance.objective_func.parse_vars(x_opt_mpcc)
 
     return {
-        "random_seed": combo["dataset"]["random_seed"],
-        "gamma": combo["model"]["gamma"],
+        #"random_seed": combo["dataset"]["random_seed"],
+        #"gamma": combo["model"]["gamma"],
         "img_size": combo["dataset"]["img_size"],
         "RMSE": 0.5 * rmse(true.flatten(), u_mpcc),
-        "PSNR": psnr(true.flatten(), u_mpcc),
+        "PSNR damage": psnr(noisy.flatten(), true.flatten()),
+        "PSNR MPCC": psnr(true.flatten(), u_mpcc),
         "Comp Viol": model_mpcc_instance.comp,
         "alpha": alpha_mpcc,
-        "niter": res_mpcc["iter"],
+        "iter_mpcc": res_mpcc["iter"],
+        "iter_reg": res["nit"]
     }
 
 
@@ -163,8 +165,8 @@ if __name__ == "__main__":
             with open(args.results, "rb") as f:
                 all_results = pickle.load(f)
                 df = pd.DataFrame(all_results).T
-                df = df.groupby(["img_size", "gamma"]).mean().reset_index()
-                print(df)
+                #df = df.groupby(["img_size", "gamma"]).mean().reset_index()
+                #print(df)
                 df.to_latex(table_path, index=False, float_format="%.2f", escape=False)
                 print(f"Table saved to {table_path}")
 

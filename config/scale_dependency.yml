@@ -1,6 +1,6 @@
 dataset: 
   name: cameraman
-  img_sizes: [8, 16]
+  img_sizes: [8]
   random_seeds: [1]
 model:
   name: bimpcc.models.tvdenoising_model.TVDenoisingMPCC
