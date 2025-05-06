@@ -9,6 +9,7 @@ from bimpcc.nlp import (
     ComplementarityConstraintFn,
 )
 from bimpcc.models.typings import Image
+from bimpcc.utils import gaussian_blur_sparse_matrix_symmetric
 
 
 def _parse_vars(x: np.ndarray, N: int, M: int):
@@ -364,6 +365,17 @@ class TVReconstructionMPCC(MPCCModel):
     def compute_complementarity(self, x):
         u, q, r, delta, theta, alpha = self.objective_func.parse_vars(x)
         return np.linalg.norm(np.minimum(r, alpha - delta))
+    
+class TVDeblurringMPCC(TVReconstructionMPCC):
+    def __init__(self, true_img, blurred_img, x0=None, epsilon=0.0):
+        forward_map = gaussian_blur_sparse_matrix_symmetric(true_img.shape)
+        super().__init__(
+            forward_map=forward_map,
+            true_img=true_img,
+            noisy_img=blurred_img,
+            x0=x0,
+            epsilon=epsilon,
+        )
 
 
 class PenalizedTVDenoisingMPCC(MPCCPenalizedModel):

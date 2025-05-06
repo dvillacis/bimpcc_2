@@ -5,6 +5,8 @@ from bimpcc.utils_reg import build_index_sets, build_jacobian_matrices
 from bimpcc.nlp import ObjectiveFn, ConstraintFn, OptimizationProblem
 from bimpcc.models.typings import Image
 
+from bimpcc.utils import gaussian_blur_sparse_matrix_symmetric
+
 # from scipy.sparse import bmat, identity, diags
 
 
@@ -211,3 +213,9 @@ class TVReconsRegularized:
             "check_derivatives_for_naninf": "yes",
         }
         return nlp.solve(self.x0, self.bounds, options=options)
+
+
+class TVDeblurRegularized(TVReconsRegularized):
+    def __init__(self, true_img, noisy_img):
+        forward_map = gaussian_blur_sparse_matrix_symmetric(true_img.shape)
+        super().__init__(forward_map, true_img, noisy_img, epsilon=0.0)

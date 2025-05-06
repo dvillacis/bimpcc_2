@@ -9,8 +9,9 @@ from itertools import product
 import importlib
 from skimage.metrics import peak_signal_noise_ratio as psnr
 from sklearn.metrics import root_mean_squared_error as rmse
+import time
 
-from bimpcc.dataset import get_dataset
+from bimpcc.dataset import get_dataset, get_blur_dataset
 
 
 def load_class(path: str):
@@ -43,6 +44,7 @@ def calc_theta(Ku, q, r0, n, delta0):
 
 
 def generate_combinations(config):
+    dataset_fn_name = config["dataset"]["fn_name"]
     dataset_name = config["dataset"]["name"]
     dataset_img_sizes = config["dataset"]["img_sizes"]
     dataset_random_seeds = config["dataset"]["random_seeds"]
@@ -52,6 +54,7 @@ def generate_combinations(config):
         for gamma in config["model"]["gammas"]:
             combination = {
                 "dataset": {
+                    "fn_name": dataset_fn_name,
                     "name": dataset_name,
                     "img_size": img_size,
                     "random_seed": random_seed,
@@ -71,7 +74,8 @@ def generate_combinations(config):
 
 
 def run_single_experiment(combo):
-    dataset = get_dataset(
+    fn  = globals()[combo["dataset"]["fn_name"]]
+    dataset = fn(
         combo["dataset"]["name"],
         scale=combo["dataset"]["img_size"],
         random_state=combo["dataset"]["random_seed"],
@@ -79,11 +83,15 @@ def run_single_experiment(combo):
     true, noisy = dataset.get_training_data()
     reg_model_class = load_class(combo["model"]["reg_name"])
     reg_model_instance = reg_model_class(true, noisy)
+
+    start_time = time.perf_counter()
     res, x_opt, fun_opt = reg_model_instance.solve(
         max_iter=int(combo["model"]["max_iter_reg"]),
         tol=float(combo["model"]["tol"]),
         print_level=0,
     )
+    reg_elapsed_time = time.perf_counter() - start_time
+
     u, q, alpha = reg_model_instance.objective_func.parse_vars(x_opt)
     n = q.size // 2
     Ku = reg_model_instance.K @ u
@@ -98,26 +106,33 @@ def run_single_experiment(combo):
 
     model_mpcc_class = load_class(combo["model"]["name"])
     model_mpcc_instance = model_mpcc_class(true, noisy, x0=x0_mpcc)
+
+    start_time = time.perf_counter()
     res_mpcc, x_opt_mpcc, fun_opt_mpcc = model_mpcc_instance.solve(
         max_iter=int(combo["model"]["max_iter"]),
         tol=float(combo["model"]["tol"]),
         print_level=0,
         verbose=True,
-        beta=0.7,
+        beta=float(combo["model"]["beta"]),
     )
+    mpcc_elapsed_time = time.perf_counter() - start_time
+
     u_mpcc, q_mpcc, r_mpcc, delta_mpcc, theta_mpcc, alpha_mpcc = model_mpcc_instance.objective_func.parse_vars(x_opt_mpcc)
 
     return {
         #"random_seed": combo["dataset"]["random_seed"],
         #"gamma": combo["model"]["gamma"],
-        "img_size": combo["dataset"]["img_size"],
-        "RMSE": 0.5 * rmse(true.flatten(), u_mpcc),
-        "PSNR damage": psnr(noisy.flatten(), true.flatten()),
+        "img size": combo["dataset"]["img_size"],
+        "fopt": fun_opt_mpcc,
+        "PSNR damage": psnr(noisy, true),
+        "PSNR reg": psnr(true.flatten(), u),
         "PSNR MPCC": psnr(true.flatten(), u_mpcc),
         "Comp Viol": model_mpcc_instance.comp,
         "alpha": alpha_mpcc,
-        "iter_mpcc": res_mpcc["iter"],
-        "iter_reg": res["nit"]
+        "iter mpcc": res_mpcc["iter"],
+        # "iter_reg": res["nit"],
+        "reg elapsed time": reg_elapsed_time,
+        "mpcc elapsed time": mpcc_elapsed_time,
     }
 
 
@@ -164,10 +179,11 @@ if __name__ == "__main__":
                 raise ValueError("Please provide the path to the results file using --results.")
             with open(args.results, "rb") as f:
                 all_results = pickle.load(f)
+
                 df = pd.DataFrame(all_results).T
                 #df = df.groupby(["img_size", "gamma"]).mean().reset_index()
-                #print(df)
-                df.to_latex(table_path, index=False, float_format="%.2f", escape=False)
+                print(df)
+                df.to_latex(table_path, index=False, float_format="%.4f", escape=False)
                 print(f"Table saved to {table_path}")
 
         else:
