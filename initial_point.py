@@ -9,6 +9,7 @@ from itertools import product
 import importlib
 from skimage.metrics import peak_signal_noise_ratio as psnr
 from sklearn.metrics import root_mean_squared_error as rmse
+import time
 
 from bimpcc.dataset import get_dataset
 
@@ -56,15 +57,19 @@ def run_single_experiment(combo):
     true, noisy = dataset.get_training_data()
     reg_model_class = load_class(combo["model"]["reg_name"])
     reg_model_instance = reg_model_class(true, noisy)
+
+    start_time = time.perf_counter()
     res, x_opt, fun_opt = reg_model_instance.solve(
         max_iter=int(combo["model"]["max_iter_reg"]),
         tol=float(combo["model"]["tol"]),
         print_level=0,
     )
+    reg_elapsed_time = time.perf_counter() - start_time
     u, q, alpha = reg_model_instance.objective_func.parse_vars(x_opt)
 
     model_mpcc_class = load_class(combo["model"]["name"])
     model_mpcc_instance = model_mpcc_class(true, noisy, x0=None)
+    start_time = time.perf_counter()
     res_mpcc, x_opt_mpcc, fun_opt_mpcc = model_mpcc_instance.solve(
         max_iter=int(combo["model"]["max_iter"]),
         tol=float(combo["model"]["tol"]),
@@ -72,6 +77,7 @@ def run_single_experiment(combo):
         verbose=True,
         beta=float(combo["model"]["beta"]),
     )
+    mpcc_elapsed_time = time.perf_counter() - start_time
     u_mpcc, q_mpcc, r_mpcc, delta_mpcc, theta_mpcc, alpha_mpcc = (
         model_mpcc_instance.objective_func.parse_vars(x_opt_mpcc)
     )
@@ -79,14 +85,16 @@ def run_single_experiment(combo):
     return {
         # "random_seed": combo["dataset"]["random_seed"],
         # "gamma": combo["model"]["gamma"],
-        "img_size": combo["dataset"]["img_size"],
-        "RMSE": 0.5 * rmse(true.flatten(), u_mpcc),
-        "PSNR reg": psnr(true.flatten(), u),
-        "PSNR MPCC": psnr(true.flatten(), u_mpcc),
-        "alpha_reg": alpha,
-        "alpha_mpcc": alpha_mpcc,
-        "iter_mpcc": res_mpcc["iter"],
-        "iter_reg": res["nit"],
+        "size": combo["dataset"]["img_size"],
+        "fopt": fun_opt_mpcc,
+        "PSNRreg": psnr(true.flatten(), u),
+        "PSNRmp": psnr(true.flatten(), u_mpcc),
+        "alphareg": alpha,
+        "alphamp": alpha_mpcc,
+        "itmp": res_mpcc["iter"],
+        "itreg": res["nit"],
+        "regtime": reg_elapsed_time,
+        "mptime": mpcc_elapsed_time,
     }
 
 
