@@ -32,6 +32,7 @@ class MPCCModel(ABC):
         self.bounds = bounds
         self.t = t_init
         self.x0 = x0
+        self.comp = None
 
     @abstractmethod
     def compute_complementarity(self, x: np.ndarray) -> float:
@@ -51,7 +52,9 @@ class MPCCModel(ABC):
             "print_level": print_level,
             "tol": tol,
             "max_iter": max_iter,
-            "acceptable_tol": tol,
+            "acceptable_tol": 1e-5,
+            "constr_viol_tol": 1e-5,
+            "nlp_scaling_method": "gradient-based",
         }
         return nlp.solve(x0, bounds, options=options)
 
@@ -60,7 +63,7 @@ class MPCCModel(ABC):
         t_min: float = 1e-5,
         max_iter: int = 10,
         tol: float = 1e-3,
-        nlp_tol: float = 1e-8,
+        nlp_tol: float = 1e-6,
         nlp_max_iter: int = 5000,
         verbose: bool = False,
         print_level: int = 0,
@@ -86,12 +89,13 @@ class MPCCModel(ABC):
             res, x_, fn = self._solve_nlp(
                 x, self.bounds, t, tol=nlp_tol, print_level=print_level, max_iter=nlp_max_iter
             )
-            comp = self.compute_complementarity(x_)
-            if np.abs(comp) < tol:
+            self.comp = self.compute_complementarity(x_)
+            if np.abs(self.comp) < tol:
                 print(
                     f'{k: > 5}*\t{res["status"]: > 15}\t{fn: > 15}\t{
-                comp: > 15}\t{t: > 15}'
+                self.comp: > 15}\t{t: > 15}'
                 )
+                res["iter"] = k 
                 return res, x_, fn
             # status = ""
             if res["status"] >= 0:
@@ -104,7 +108,7 @@ class MPCCModel(ABC):
             if verbose:
                 print(
                     f'{k: > 5}\t{res["status"]: > 15}\t{fn: > 15}\t{
-                comp: > 15}\t{t: > 15}'
+                self.comp: > 15}\t{t: > 15}'
                 )
                 # print(
                 #     f"* Iteration {k+1} {status}: Solving the NLP problem for t = {t} with fn: {fn}, complementarity: {self.compute_complementarity(x)}"
@@ -114,6 +118,7 @@ class MPCCModel(ABC):
         print(
             f"* (STOPPED) Iteration {k+1}: Solving the NLP problem for t = {t} with complementarity: {self.compute_complementarity(x)}"
         )
+        res["iter"] = k + 1 
         return res, x, fn
 
 

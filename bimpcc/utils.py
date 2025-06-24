@@ -1,6 +1,7 @@
 import numpy as np
 import scipy.sparse as sp
 from scipy.sparse.linalg import LinearOperator
+from scipy.sparse import lil_matrix
 
 # from scipy.sparse import spdiags, kron, vstack
 from typing import Tuple
@@ -91,3 +92,39 @@ def generate_2D_gradient_matrices(N) -> tuple:
     K = sp.vstack((Kx, Ky))
 
     return Kx, Ky, K
+
+def gaussian_kernel_2d(size=3, sigma=1):
+    ax = np.linspace(-(size // 2), size // 2, size)
+    xx, yy = np.meshgrid(ax, ax)
+    kernel = np.exp(-(xx**2 + yy**2) / (2. * sigma**2))
+    return kernel / np.sum(kernel)
+
+def reflect_index(i, N):
+    if i < 0:
+        return -i
+    elif i >= N:
+        return 2*N - i - 2
+    return i
+
+def gaussian_blur_sparse_matrix_symmetric(image_shape, kernel_size=3, sigma=1.0):
+    H, W = image_shape
+    N = H * W
+    kernel = gaussian_kernel_2d(kernel_size, sigma)
+    offset = kernel_size // 2
+
+    A = lil_matrix((N, N))
+
+    for i in range(H):
+        for j in range(W):
+            row = i * W + j
+
+            for di in range(-offset, offset + 1):
+                for dj in range(-offset, offset + 1):
+                    ni = reflect_index(i + di, H)
+                    nj = reflect_index(j + dj, W)
+
+                    col = ni * W + nj
+                    weight = kernel[di + offset, dj + offset]
+                    A[row, col] += weight
+
+    return A.tocsr()

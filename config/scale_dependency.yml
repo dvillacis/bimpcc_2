@@ -1,0 +1,13 @@
+dataset: 
+  fn_name: get_blur_dataset
+  name: cameraman
+  img_sizes: [12]
+  random_seeds: [1]
+model:
+  name: bimpcc.models.tvreconstruction_model.TVDeblurringMPCC
+  reg_name: bimpcc.models.recons_regularized.TVDeblurRegularized
+  tol: 1e-2
+  max_iter_reg: 3000
+  max_iter: 100 #iteraciones del mpcc total
+  beta: 0.5
+  gammas: [1000]

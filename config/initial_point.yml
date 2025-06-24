@@ -1,0 +1,12 @@
+dataset: 
+  name: cameraman
+  img_sizes: [20, 40, 60]
+  random_seeds: [1]
+model:
+  name: bimpcc.models.tvdenoising_model.TVDenoisingMPCC
+  reg_name: bimpcc.models.tvregularized.TVRegularized
+  tol: 1e-1
+  max_iter_reg: 3000
+  max_iter: 100 #iteraciones del mpcc total
+  beta: 0.5
+  gammas: [100]
