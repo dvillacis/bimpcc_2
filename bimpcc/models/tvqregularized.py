@@ -5,6 +5,9 @@ from bimpcc.utils_reg import build_index_sets, build_jacobian_matrices
 from bimpcc.nlp import ObjectiveFn, ConstraintFn, OptimizationProblem
 from bimpcc.models.typings import Image
 
+from bimpcc.utils_tvq import diagonal_j_rho, build_nabla_u
+
+
 def _parse_vars(x: np.ndarray, N: int, M: int):
     return (
         x[:N],
@@ -29,11 +32,7 @@ class TVDenRegObjectiveFn(ObjectiveFn):
 
     def __call__(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
-        # v = np.concatenate((q, r, delta, theta, alpha))
-        return (
-            0.5 * np.linalg.norm(u - self.true_img) ** 2
-            # + 0.5 * self.epsilon * np.linalg.norm(v) ** 2
-        )
+        return 0.5 * np.linalg.norm(u - self.true_img) ** 2
         # return 0.5 * np.linalg.norm(u - self.true_img) ** 2 + self.epsilon * np.linalg.norm(alpha) ** 2
 
     def parse_vars(self, x):
@@ -41,11 +40,9 @@ class TVDenRegObjectiveFn(ObjectiveFn):
 
     def gradient(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
-        # v = np.concatenate((q, r, delta, theta, alpha))
         return np.concatenate(
             (u - self.true_img, np.zeros(self.M + self.parameter_size))
         )
-        # return np.concatenate((u - self.true_img, self.epsilon * v))
 
     def hessian(self, x: np.ndarray) -> float:
         """
@@ -68,28 +65,56 @@ class StateConstraintFn(ConstraintFn):
         noisy_img: np.ndarray,
         gradient_op: np.ndarray,
         parameter_size: int = 1,
+        gamma: int = 100,
+        rho: float = 1e-3,
+        q_param: float = 0.99,
     ):
         self.noisy_img = noisy_img.flatten()
         self.gradient_op = gradient_op
         self.M, self.N = gradient_op.shape
         self.parameter_size = parameter_size
+        self.gamma = gamma
+        self.rho = rho
+        self.q_param = q_param
+        self.delta_gamma = (gamma ** (1 - q_param)) * (q_param**q_param)
+
         self.Id = sp.eye(self.N).tocoo()
         self.KT = (self.gradient_op.T).tocoo()
+        self.K = self.gradient_op.tocoo()
         self.Z_P = sp.coo_matrix((self.N, self.parameter_size))
 
     def __call__(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
-        return u - self.noisy_img + self.gradient_op.T @ q
+        Da = diagonal_j_rho(
+            self.K @ u, alpha, self.delta_gamma, self.q_param, self.gamma, self.rho
+        )
+        return (-1 / self.delta_gamma) * (
+            self.KT @ Da @ self.K @ u - u + self.noisy_img
+        ) + self.K.T @ q
 
     def parse_vars(self, x):
         return _parse_vars(x, self.N, self.M)
 
     def jacobian(self, x: np.ndarray) -> float:
+        u, q, alpha = self.parse_vars(x)
+        W_u, W_beta = build_nabla_u(
+            u,
+            self.K,
+            self.q_param,
+            alpha,
+            self.delta_gamma,
+            self.gamma,
+            self.rho,
+            self.N,
+            self.M,
+        )
+        # W_u = (-1/self.delta_gamma) * (self.K.T @ nabla_u_w - self.Id)
+        # W_beta = (-1/self.delta_gamma)*self.K.T@nabla_beta_w
         jac = sp.hstack(
             [
-                self.Id,  # u
+                W_u,  # u
                 self.KT,  # q
-                self.Z_P,  # alpha
+                W_beta,  # alpha
             ]
         )
         # print(jac.shape)
@@ -127,28 +152,20 @@ class DualConstraintFn(ConstraintFn):
         H_u, H_alpha = build_jacobian_matrices(
             self.gradient_op, u, q, alpha, self.gamma, self.M
         )
-        # jac = bmat(
-        #     [
-        #         [-H_u, identity(self.M), -H_alpha],
-        #     ]
-        # )
-        # # print(f"jacobian nonzero elements: {jac.nnz}")
-        # jac_matrix = jac.toarray()
-        # # print(f"jac_matrix shape: {jac_matrix.shape}")
-        # return jac_matrix.ravel()
         indices = np.arange(H_alpha.size)
-        v_coo = sp.coo_matrix((H_alpha, (indices, np.zeros_like(indices))), shape=(H_alpha.size, 1))
+        v_coo = sp.coo_matrix(
+            (H_alpha, (indices, np.zeros_like(indices))), shape=(H_alpha.size, 1)
+        )
 
         # Construcción de la jacobiana usando hstack
         jac = sp.hstack(
             [-H_u, self.Id, -v_coo]  # Matrices en columnas
         )
-        # print(jac.shape)
         # Convertir a formato COO para compatibilidad
         return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
 
 
-class TVRegularized:
+class TVqRegularized:
     def __init__(
         self,
         true_img: Image,
@@ -156,6 +173,7 @@ class TVRegularized:
         epsilon: float = 1e-4,
         parameter_size: int = 1,
         x0: np.ndarray = None,
+        q_param: float = 0.99,
         *args,
         **kwargs,
     ):
@@ -169,8 +187,12 @@ class TVRegularized:
             true_img, self.K, epsilon=epsilon, parameter_size=parameter_size
         )
         self.eq_constraint_funcs = [
-            StateConstraintFn(noisy_img, self.K, parameter_size=parameter_size),
-            DualConstraintFn(noisy_img, self.K, parameter_size=parameter_size, gamma=100),
+            StateConstraintFn(
+                noisy_img, self.K, parameter_size=parameter_size, q_param=q_param
+            ),
+            DualConstraintFn(
+                noisy_img, self.K, parameter_size=parameter_size, gamma=100
+            ),
         ]
         self.ineq_constraint_funcs = []
 

@@ -41,23 +41,18 @@ class TVDenObjectiveFn(ObjectiveFn):
 
     def __call__(self, x: np.ndarray) -> float:
         u, q, r, delta, theta, alpha = self.parse_vars(x)
-        # v = np.concatenate((q, r, delta, theta, alpha))
         return (
             0.5 * np.linalg.norm(u - self.true_img) ** 2
-            # + 0.5 * self.epsilon * np.linalg.norm(v) ** 2
         )
-        # return 0.5 * np.linalg.norm(u - self.true_img) ** 2 + self.epsilon * np.linalg.norm(alpha) ** 2
 
     def parse_vars(self, x):
         return _parse_vars(x, self.N, self.M)
 
     def gradient(self, x: np.ndarray) -> float:
         u, q, r, delta, theta, alpha = self.parse_vars(x)
-        # v = np.concatenate((q, r, delta, theta, alpha))
         return np.concatenate(
             (u - self.true_img, np.zeros(5 * self.R + self.parameter_size))
         )
-        # return np.concatenate((u - self.true_img, self.epsilon * v))
 
     def hessian(self, x: np.ndarray) -> float:
         """
@@ -71,15 +66,7 @@ class TVDenObjectiveFn(ObjectiveFn):
                 np.zeros(5 * self.R + self.parameter_size),
             )
         )
-        # d = np.concatenate(
-        #     (
-        #         np.ones(self.N),
-        #         self.epsilon * np.ones(5 * self.R + self.parameter_size),
-        #     )
-        # )
-        # hess = sp.diags_array(d)
         return np.diag(d)
-
 
 class PenalizedTVDenObjectiveFn(PenalizedObjectiveFn):
     def __init__(
@@ -155,15 +142,14 @@ class PenalizedTVDenObjectiveFn(PenalizedObjectiveFn):
         # )
         return A
 
-
 class StateConstraintFn(ConstraintFn):
     def __init__(
         self,
         noisy_img: np.ndarray,
         gradient_op: np.ndarray,
         parameter_size: int = 1,
-        q_param: int = 0.5,
-        gamma_param: int = 10,
+        q_param: float = 0.99,
+        gamma_param: int = 100,
         rho: int = 0.001
     ):
         self.noisy_img = noisy_img.flatten()
@@ -173,34 +159,33 @@ class StateConstraintFn(ConstraintFn):
         self.parameter_size = parameter_size
         self.Id = sp.eye(self.N).tocoo()
         self.KT = (self.gradient_op.T).tocoo()
+        self.K = self.gradient_op.tocoo()
         self.Z_R = sp.coo_matrix((self.N, self.R))
         self.Z_P = sp.coo_matrix((self.N, self.parameter_size))
         self.q_param = q_param
         self.gamma_param = gamma_param
         self.rho = rho
-        self.delta_gamma = self.q_param**self.q_param*self.gamma_param**(1-self.q_param)
+        self.delta_gamma = self.q_param**self.q_param*(self.gamma_param**(1-self.q_param))
 
     def __call__(self, x: np.ndarray) -> float:
         u, q, r, delta, theta, alpha = self.parse_vars(x)
-        Kx = self.gradient_op[:self.R,:]
-        Ky = self.gradient_op[self.R:, :]
-        Da = diagonal_j_rho(u, Kx, Ky, alpha, self.delta_gamma, self.q_param, self.gamma_param, self.rho)
-        return (-1/self.delta_gamma)*(self.gradient_op.T@Da@self.gradient_op@u - u + self.noisy_img) + self.gradient_op.T @ q
+        Da = diagonal_j_rho(self.K @ u, alpha, self.delta_gamma, self.q_param, self.gamma_param, self.rho)
+        return (-1/self.delta_gamma)*(self.KT @ Da @ self.gradient_op@u - u + self.noisy_img) + self.KT @ q
 
     def parse_vars(self, x):
         return _parse_vars(x, self.N, self.M)
 
     def jacobian(self, x: np.ndarray) -> float:
-        u, q, alpha = self.parse_vars(x)
-        nabla_u_W, nabla_beta_W = build_nabla_u(self.gradient_op, u, self.q_param, alpha, self.delta_gamma, self.gamma_param, self.rho, self.M)
+        u, q, r, delta, theta, alpha = self.parse_vars(x)
+        W_u, W_beta = build_nabla_u(u, self.K, self.q_param, alpha, self.delta_gamma, self.gamma_param, self.rho, self.N, self.M)
         jac = sp.hstack(
             [
-                (-1/self.delta_gamma)*(self.KT @ nabla_u_W - self.Id),  # u
+                W_u,  # u
                 self.KT,  # q
                 self.Z_R,  # r
                 self.Z_R,  # delta
                 self.Z_R,  # theta
-                (-1/self.delta_gamma)*self.KT @ nabla_beta_W,  # alpha
+                W_beta,  # alpha
             ]
         )
         return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
@@ -401,6 +386,7 @@ class TVDenoisingMPCC(MPCCModel):
         t_init: float = 1.0,
         x0: np.ndarray = None,
         parameter_size: int = 1,
+        q_param: float = 0.99,
     ):
         Kx, Ky, K = generate_2D_gradient_matrices(true_img.shape[0])
         true_img = true_img.flatten()
@@ -410,7 +396,7 @@ class TVDenoisingMPCC(MPCCModel):
         R = M // 2
         objective_func = TVDenObjectiveFn(true_img, K, epsilon=epsilon)
         eq_constraint_funcs = [
-            StateConstraintFn(noisy_img, K),
+            StateConstraintFn(noisy_img, K, parameter_size = parameter_size, q_param = q_param, gamma_param =100, rho = 0.001),
             PrimalConstraintFn(K),
             DualConstraintFn(K, Kx, Ky),
         ]
@@ -453,7 +439,6 @@ class TVDenoisingMPCC(MPCCModel):
     def compute_complementarity(self, x):
         u, q, r, delta, theta, alpha = self.objective_func.parse_vars(x)
         return np.linalg.norm(np.minimum(r, alpha - delta))
-
 
 class PenalizedTVDenoisingMPCC(MPCCPenalizedModel):
     def __init__(
@@ -515,3 +500,4 @@ class PenalizedTVDenoisingMPCC(MPCCPenalizedModel):
         u, q, r, delta, theta, alpha = self.objective_func.parse_vars(x)
         # return np.dot(r, alpha - delta)
         return np.linalg.norm(np.minimum(r, alpha - delta))
+
