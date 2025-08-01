@@ -2,7 +2,7 @@ from PIL import Image
 import numpy as np
 from scipy.signal import convolve2d
 from abc import ABC
-from bimpcc.utils import gaussian_blur_sparse_matrix_symmetric
+from utils import gaussian_blur_sparse_matrix_symmetric
 
 
 def load_and_scale_image(
@@ -16,7 +16,7 @@ def load_and_scale_image(
         rng = np.random.default_rng(random_state)
         # np.random.seed(random_state)
         # noise = 0.05*np.random.randn(target_pixels, target_pixels)
-        noise = rng.normal(0, 0.05, grayscale_image.shape)
+        noise = rng.normal(0, 0.1, grayscale_image.shape)
         grayscale_image += noise
 
     if add_blur:
@@ -29,7 +29,7 @@ def load_and_scale_image(
         # blurred_image = np.clip(blurred_image, 0, 1)
         grayscale_image = blurred_image.reshape(grayscale_image.shape)
 
-    grayscale_image = np.clip(grayscale_image, 0, 1)
+    # grayscale_image = np.clip(grayscale_image, 0, 1)
     # Return the grayscale image
     return grayscale_image
 
@@ -71,11 +71,11 @@ class Synthetic:
 
 def get_dataset(dataset_name, scale=256, folder="datasets", random_state=None):
     if dataset_name == "cameraman":
-        return Dataset("datasets/cameraman/cameraman.png", scale, random_state)
+        return Dataset("../datasets/cameraman/cameraman.png", scale, random_state)
     elif dataset_name == "wood":
-        return Dataset("datasets/wood/wood.png", scale, random_state)
+        return Dataset("../datasets/wood/wood.png", scale, random_state)
     elif dataset_name == "circle":
-        return Dataset("datasets/circle/circle.png", scale, random_state)
+        return Dataset("../datasets/circle/circle.png", scale, random_state)
     elif dataset_name == "synthetic":
         return Synthetic(scale)
     else:
@@ -84,11 +84,11 @@ def get_dataset(dataset_name, scale=256, folder="datasets", random_state=None):
 
 def get_blur_dataset(dataset_name, scale=256, folder="datasets", random_state=None):
     if dataset_name == "cameraman":
-        return BlurDataset("datasets/cameraman/cameraman.png", scale, random_state)
+        return BlurDataset("../datasets/cameraman/cameraman.png", scale, random_state)
     elif dataset_name == "wood":
-        return BlurDataset("datasets/wood/wood.png", scale, random_state)
+        return BlurDataset("../datasets/wood/wood.png", scale, random_state)
     elif dataset_name == "circle":
-        return BlurDataset("datasets/circle/circle.png", scale, random_state)
+        return BlurDataset("../datasets/circle/circle.png", scale, random_state)
     elif dataset_name == "synthetic":
         return Synthetic(scale)
     else:

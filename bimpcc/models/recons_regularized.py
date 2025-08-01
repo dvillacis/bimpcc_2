@@ -135,15 +135,6 @@ class DualConstraintFn(ConstraintFn):
         H_u, H_alpha = build_jacobian_matrices(
             self.gradient_op, u, q, alpha, self.gamma, self.M
         )
-        # jac = bmat(
-        #     [
-        #         [-H_u, identity(self.M), -H_alpha],
-        #     ]
-        # )
-        # # print(f"jacobian nonzero elements: {jac.nnz}")
-        # jac_matrix = jac.toarray()
-        # # print(f"jac_matrix shape: {jac_matrix.shape}")
-        # return jac_matrix.ravel()
         indices = np.arange(H_alpha.size)
         v_coo = sp.coo_matrix((H_alpha, (indices, np.zeros_like(indices))), shape=(H_alpha.size, 1))
 
@@ -151,7 +142,7 @@ class DualConstraintFn(ConstraintFn):
         jac = sp.hstack(
             [-H_u, self.Id, -v_coo]  # Matrices en columnas
         )
-        # print(jac.shape)
+
         # Convertir a formato COO para compatibilidad
         return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
 
@@ -192,7 +183,6 @@ class TVReconsRegularized:
             self.x0 = np.concatenate(
                 [
                     noisy_img,
-                    # np.random.randn(N),
                     1e-3 * np.ones(M),
                     1e-3 * np.ones(parameter_size),
                 ]

@@ -13,6 +13,8 @@ dependencies = [
     "numpy>=2.2.1",
     "pandas>=2.2.3",
     "pillow>=11.0.0",
+    "pylops>=2.4.0",
+    "pyproximal>=0.10.0",
     "pytest>=8.3.4",
     "pyyaml>=6.0.2",
     "rich>=13.9.4",
@@ -21,3 +23,7 @@ dependencies = [
     "scikit-learn>=1.6.1",
     "scipy>=1.14.1",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = "src"
+testpaths = ["tests"]

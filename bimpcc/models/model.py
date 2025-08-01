@@ -54,6 +54,7 @@ class MPCCModel(ABC):
             "max_iter": max_iter,
             "acceptable_tol": 1e-5,
             "constr_viol_tol": 1e-5,
+            "mu_strategy": "adaptive",
             "nlp_scaling_method": "gradient-based",
         }
         return nlp.solve(x0, bounds, options=options)

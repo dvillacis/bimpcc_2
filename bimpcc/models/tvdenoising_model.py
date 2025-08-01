@@ -461,12 +461,12 @@ class PenalizedTVDenoisingMPCC(MPCCPenalizedModel):
         ]
         ineq_constraint_funcs = [BoundConstraintFn(M, N)]
 
-        u_bounds = [(0, None)] * N
+        u_bounds = [(1e-6, None)] * N
         q_bounds = [(None, None)] * M
-        r_bounds = [(0, None)] * R
-        delta_bounds = [(0, None)] * R
+        r_bounds = [(1e-6, None)] * R
+        delta_bounds = [(1e-6, None)] * R
         theta_bounds = [(None, None)] * R
-        alpha_bounds = [(0, None)] * (parameter_size)
+        alpha_bounds = [(1e-6, None)] * (parameter_size)
         bounds = (
             u_bounds + q_bounds + r_bounds + delta_bounds + theta_bounds + alpha_bounds
         )
