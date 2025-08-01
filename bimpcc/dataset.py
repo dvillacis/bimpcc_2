@@ -26,6 +26,12 @@ def load_and_scale_image(
         #     grayscale_image.shape, kernel_size=3, sigma=1.0
         # )
         # blurred_image = blur_matrix @ grayscale_image.flatten()
+        kernel = np.array([[1, 2, 1], [2, 4, 2], [1, 2, 1]]) / 16
+        blurred_image = convolve2d(grayscale_image, kernel, mode='same', boundary='symm')
+        #blur_matrix = gaussian_blur_sparse_matrix_symmetric(
+        #    grayscale_image.shape, kernel_size=3, sigma=1.0
+        #)
+        #blurred_image = blur_matrix @ grayscale_image.flatten()
         # blurred_image = np.clip(blurred_image, 0, 1)
         grayscale_image = blurred_image.reshape(grayscale_image.shape)
 
