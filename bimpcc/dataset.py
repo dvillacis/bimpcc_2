@@ -16,7 +16,7 @@ def load_and_scale_image(
         rng = np.random.default_rng(random_state)
         # np.random.seed(random_state)
         # noise = 0.05*np.random.randn(target_pixels, target_pixels)
-        noise = rng.normal(0, 0.05, grayscale_image.shape)
+        noise = rng.normal(0, 0.1, grayscale_image.shape)
         grayscale_image += noise
 
     if add_blur:
@@ -76,6 +76,12 @@ def get_dataset(dataset_name, scale=256, folder="datasets", random_state=None):
         return Dataset("datasets/wood/wood.png", scale, random_state)
     elif dataset_name == "circle":
         return Dataset("datasets/circle/circle.png", scale, random_state)
+    elif dataset_name == "guacamayo":
+        return Dataset("datasets/guacamayo/guacamayo.png", scale, random_state)
+    elif dataset_name == "tigre":
+        return Dataset("datasets/tigre/tigre.jpg", scale, random_state)
+    elif dataset_name == "mariposa":
+        return Dataset("datasets/mariposa/mariposa.jpeg", scale, random_state)
     elif dataset_name == "synthetic":
         return Synthetic(scale)
     else:
