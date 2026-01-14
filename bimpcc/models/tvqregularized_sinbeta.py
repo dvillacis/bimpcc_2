@@ -1,11 +1,10 @@
 import numpy as np
 import scipy.sparse as sp
 from bimpcc.utils import generate_2D_gradient_matrices
-from bimpcc.utils_reg import build_index_sets, build_jacobian_matrices
+from bimpcc.utils_reg_sinbeta import build_index_sets, build_jacobian_matrices
 from bimpcc.nlp import ObjectiveFn, ConstraintFn, OptimizationProblem
 from bimpcc.models.typings import Image
-
-from bimpcc.utils_tvq import diagonal_j_rho_sinbeta, build_nabla_u
+from bimpcc.utils_tvq_sinbeta import diagonal_j_rho, build_nabla_u
 
 
 def _parse_vars(x: np.ndarray, N: int, M: int):
@@ -77,19 +76,17 @@ class StateConstraintFn(ConstraintFn):
         self.rho = rho
         self.q_param = q_param
         self.delta_gamma = (gamma ** (1 - q_param)) * (q_param**q_param)
-
         self.Id = sp.eye(self.N).tocoo()
         self.KT = (self.gradient_op.T).tocoo()
         self.K = self.gradient_op.tocoo()
-        self.Z_P = sp.coo_matrix((self.N, self.parameter_size))
 
     def __call__(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
-        Da = diagonal_j_rho_sinbeta(
+        Da = diagonal_j_rho(
             self.K @ u, self.delta_gamma, self.q_param, self.gamma, self.rho
         )
         return (-1 / self.delta_gamma) * (
-            self.KT @ Da @ self.K @ u - alpha*(u + self.noisy_img)
+            self.KT @ Da @ self.K @ u - alpha * (u - self.noisy_img)
         ) + self.K.T @ q
 
     def parse_vars(self, x):
@@ -97,7 +94,7 @@ class StateConstraintFn(ConstraintFn):
 
     def jacobian(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
-        W_u, W_beta = build_nabla_u(
+        W_u = build_nabla_u(
             u,
             self.K,
             self.q_param,
@@ -108,13 +105,16 @@ class StateConstraintFn(ConstraintFn):
             self.N,
             self.M,
         )
+        vect = (-1 / self.delta_gamma) * u
+        vect_s = sp.coo_matrix(vect.reshape(-1, 1))
+
         # W_u = (-1/self.delta_gamma) * (self.K.T @ nabla_u_w - self.Id)
         # W_beta = (-1/self.delta_gamma)*self.K.T@nabla_beta_w
         jac = sp.hstack(
             [
                 W_u,  # u
                 self.KT,  # q
-                W_beta,  # alpha
+                vect_s,  # alpha
             ]
         )
         # print(jac.shape)
@@ -131,17 +131,17 @@ class DualConstraintFn(ConstraintFn):
     ):
         self.noisy_img = noisy_img.flatten()
         self.gradient_op = gradient_op
+        self.parameter_size = parameter_size
         self.M, self.N = gradient_op.shape
         self.gamma = gamma
         self.Id = sp.eye(self.M).tocoo()
+        self.Z_P = sp.coo_matrix((self.M, self.parameter_size))
 
     def __call__(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
         K = self.gradient_op.tocoo()
         Ku = K @ u
-        A_gamma, I_gamma, S_gamma, L_1, L_2 = build_index_sets(
-            Ku, alpha, self.gamma, self.M
-        )
+        A_gamma, I_gamma, S_gamma, L_1, L_2 = build_index_sets(Ku, self.gamma, self.M)
         return q - (A_gamma @ L_1 + S_gamma @ L_2 + self.gamma * I_gamma) @ Ku
 
     def parse_vars(self, x):
@@ -149,17 +149,11 @@ class DualConstraintFn(ConstraintFn):
 
     def jacobian(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
-        H_u, H_alpha = build_jacobian_matrices(
-            self.gradient_op, u, q, alpha, self.gamma, self.M
-        )
-        indices = np.arange(H_alpha.size)
-        v_coo = sp.coo_matrix(
-            (H_alpha, (indices, np.zeros_like(indices))), shape=(H_alpha.size, 1)
-        )
+        H_u = build_jacobian_matrices(self.gradient_op, u, q, self.gamma, self.M)
 
         # Construcción de la jacobiana usando hstack
         jac = sp.hstack(
-            [-H_u, self.Id, -v_coo]  # Matrices en columnas
+            [-H_u, self.Id, self.Z_P]  # Matrices en columnas
         )
         # Convertir a formato COO para compatibilidad
         return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
