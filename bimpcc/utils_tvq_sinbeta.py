@@ -175,9 +175,8 @@ def build_nabla_u(u, K, q_param, beta, delta_gamma, gamma, rho, N, M):
     nabla_u_w = (I2 @ diag_b_rho @ diag_Ku + I3 @ diag_c_rho @ diag_Ku) @ L @ K + (
         I2 @ diag_f + I3 @ diag_e
     ) @ K
-    beta_f = float(np.asarray(beta).squeeze())
 
-    W_u = (-1 / delta_gamma) * (K.T @ nabla_u_w - beta_f * sp.eye(N))
+    W_u = (-1 / delta_gamma) * (K.T @ nabla_u_w - beta * sp.eye(N))
 
     # Jacobian sparsity structure
     o = np.ones(M)
@@ -190,14 +189,8 @@ def build_nabla_u(u, K, q_param, beta, delta_gamma, gamma, rho, N, M):
 
     row, col = np.nonzero(H_u_sparsity_structure)
     values = H_[row, col]
-    beta = float(np.asarray(beta).squeeze())
 
     H_ = sp.coo_matrix((values, (row, col)), shape=W_u.shape)
-    # indices = np.arange(nab_beta.size)
-    # nabla_beta = sp.coo_matrix(
-    #     (nab_beta, (indices, np.zeros_like(indices))), shape=(nab_beta.size, 1)
-    # )
-
     return H_
 
 

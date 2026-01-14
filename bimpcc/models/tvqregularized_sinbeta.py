@@ -94,22 +94,20 @@ class StateConstraintFn(ConstraintFn):
 
     def jacobian(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
+        beta = float(np.asarray(alpha).squeeze())
         W_u = build_nabla_u(
             u,
             self.K,
             self.q_param,
-            alpha,
+            beta,
             self.delta_gamma,
             self.gamma,
             self.rho,
             self.N,
             self.M,
         )
-        vect = (-1 / self.delta_gamma) * u
+        vect = (1 / self.delta_gamma) * u
         vect_s = sp.coo_matrix(vect.reshape(-1, 1))
-
-        # W_u = (-1/self.delta_gamma) * (self.K.T @ nabla_u_w - self.Id)
-        # W_beta = (-1/self.delta_gamma)*self.K.T@nabla_beta_w
         jac = sp.hstack(
             [
                 W_u,  # u
@@ -117,7 +115,6 @@ class StateConstraintFn(ConstraintFn):
                 vect_s,  # alpha
             ]
         )
-        # print(jac.shape)
         return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
 
 
@@ -201,7 +198,7 @@ class TVqRegularized:
                     noisy_img,
                     # np.random.randn(N),
                     1e-3 * np.ones(M),
-                    1e-3 * np.ones(parameter_size),
+                    2 * np.ones(parameter_size),
                 ]
             )
         else:
