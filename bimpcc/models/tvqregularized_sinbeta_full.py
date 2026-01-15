@@ -117,7 +117,8 @@ class StateConstraintFn(ConstraintFn):
                 vect_s,  # alpha
             ]
         )
-        return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
+        # return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
+        return jac.toarray()
 
 
 class DualConstraintFn(ConstraintFn):
@@ -155,7 +156,8 @@ class DualConstraintFn(ConstraintFn):
             [-H_u, self.Id, self.Z_P]  # Matrices en columnas
         )
         # Convertir a formato COO para compatibilidad
-        return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
+        # return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
+        return jac.toarray()
 
 
 class TVqRegularized:
@@ -180,9 +182,9 @@ class TVqRegularized:
             true_img, self.K, epsilon=epsilon, parameter_size=parameter_size
         )
         self.eq_constraint_funcs = [
-            # StateConstraintFn(
-            #     noisy_img, self.K, parameter_size=parameter_size, q_param=q_param
-            # ),
+            StateConstraintFn(
+                noisy_img, self.K, parameter_size=parameter_size, q_param=q_param
+            ),
             DualConstraintFn(
                 noisy_img, self.K, parameter_size=parameter_size, gamma=100
             ),
@@ -200,7 +202,7 @@ class TVqRegularized:
                     noisy_img,
                     # np.random.randn(N),
                     1e-3 * np.ones(M),
-                    8* np.ones(parameter_size),
+                    100 * np.ones(parameter_size),
                 ]
             )
         else:
