@@ -106,8 +106,10 @@ class StateConstraintFn(ConstraintFn):
             self.N,
             self.M,
         )
-        vect = (1 / self.delta_gamma) * u
+        vect = (1 / self.delta_gamma) * (u-self.noisy_img)
         vect_s = sp.coo_matrix(vect.reshape(-1, 1))
+        # Para saber el alpha de cada iteración es correcto usar 
+        print('alpha=',alpha)
         jac = sp.hstack(
             [
                 W_u,  # u
@@ -198,7 +200,7 @@ class TVqRegularized:
                     noisy_img,
                     # np.random.randn(N),
                     1e-3 * np.ones(M),
-                    2 * np.ones(parameter_size),
+                    8* np.ones(parameter_size),
                 ]
             )
         else:

@@ -75,8 +75,6 @@ class MPCCModel(ABC):
         t = self.t
         res = None
         fn = None
-
-        history = [] # Guardamos info para la tabla de resultados 
         print(
             f'{"Iter": >5}\t{"Termination_status": >15}\t{"Objective": >15}\t{
           "MPCC_compl": >15}\t{"t": >15}\n'
@@ -92,20 +90,6 @@ class MPCCModel(ABC):
                 x, self.bounds, t, tol=nlp_tol, print_level=print_level, max_iter=nlp_max_iter
             )
             self.comp = self.compute_complementarity(x_)
-            
-            nlp_iter_k = res.get('nit', None)
-            alpha_k = float(x_[-1])
-            history.append(
-                {
-                    'k': int(k),
-                    'comp': float(self.comp),
-                    'nlp_iter': nlp_iter_k,
-                    'obj':float(fn),
-                    't': float(t),
-                    'alpha': alpha_k,
-                }
-            )
-
             if np.abs(self.comp) < tol:
                 print(
                     f'{k: > 5}*\t{res["status"]: > 15}\t{fn: > 15}\t{
@@ -135,7 +119,7 @@ class MPCCModel(ABC):
             f"* (STOPPED) Iteration {k+1}: Solving the NLP problem for t = {t} with complementarity: {self.compute_complementarity(x)}"
         )
         res["iter"] = k + 1 
-        return res, x, fn, history
+        return res, x, fn
 
 
 class MPCCPenalizedModel(ABC):
