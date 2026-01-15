@@ -180,9 +180,9 @@ class TVqRegularized:
             true_img, self.K, epsilon=epsilon, parameter_size=parameter_size
         )
         self.eq_constraint_funcs = [
-            # StateConstraintFn(
-            #     noisy_img, self.K, parameter_size=parameter_size, q_param=q_param
-            # ),
+            StateConstraintFn(
+                noisy_img, self.K, parameter_size=parameter_size, q_param=q_param
+            ),
             DualConstraintFn(
                 noisy_img, self.K, parameter_size=parameter_size, gamma=100
             ),
