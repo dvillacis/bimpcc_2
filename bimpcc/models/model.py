@@ -72,14 +72,14 @@ class MPCCModel(ABC):
         **kwargs,
     ):
         x = self.x0
-        t = self.t
+        t = 0.1  # self.t
         res = None
         fn = None
 
-        history = [] # Guardamos info para la tabla de resultados 
+        history = []  # Guardamos info para la tabla de resultados
         print(
-            f'{"Iter": >5}\t{"Termination_status": >15}\t{"Objective": >15}\t{
-          "MPCC_compl": >15}\t{"t": >15}\n'
+            f"{'Iter': >5}\t{'Termination_status': >15}\t{'Objective': >15}\t{
+                'MPCC_compl': >15}\t{'t': >15}\n"
         )
         for k in range(max_iter):
             if t <= t_min:
@@ -89,29 +89,34 @@ class MPCCModel(ABC):
                 print(f"complementarity: {self.compute_complementarity(x)}")
                 break
             res, x_, fn = self._solve_nlp(
-                x, self.bounds, t, tol=nlp_tol, print_level=print_level, max_iter=nlp_max_iter
+                x,
+                self.bounds,
+                t,
+                tol=nlp_tol,
+                print_level=print_level,
+                max_iter=nlp_max_iter,
             )
             self.comp = self.compute_complementarity(x_)
-            
-            nlp_iter_k = res.get('nit', None)
+
+            nlp_iter_k = res.get("nit", None)
             alpha_k = float(x_[-1])
             history.append(
                 {
-                    'k': int(k),
-                    'comp': float(self.comp),
-                    'nlp_iter': nlp_iter_k,
-                    'obj':float(fn),
-                    't': float(t),
-                    'alpha': alpha_k,
+                    "k": int(k),
+                    "comp": float(self.comp),
+                    "nlp_iter": nlp_iter_k,
+                    "obj": float(fn),
+                    "t": float(t),
+                    "alpha": alpha_k,
                 }
             )
 
             if np.abs(self.comp) < tol:
                 print(
-                    f'{k: > 5}*\t{res["status"]: > 15}\t{fn: > 15}\t{
-                self.comp: > 15}\t{t: > 15}'
+                    f"{k: > 5}*\t{res['status']: > 15}\t{fn: > 15}\t{self.comp: > 15}\t{
+                        t: > 15}"
                 )
-                res["iter"] = k 
+                res["iter"] = k
                 return res, x_, fn
             # status = ""
             if res["status"] >= 0:
@@ -123,8 +128,8 @@ class MPCCModel(ABC):
                 # status = f" (FAILED {res['status']})"
             if verbose:
                 print(
-                    f'{k: > 5}\t{res["status"]: > 15}\t{fn: > 15}\t{
-                self.comp: > 15}\t{t: > 15}'
+                    f"{k: > 5}\t{res['status']: > 15}\t{fn: > 15}\t{self.comp: > 15}\t{
+                        t: > 15}"
                 )
                 # print(
                 #     f"* Iteration {k+1} {status}: Solving the NLP problem for t = {t} with fn: {fn}, complementarity: {self.compute_complementarity(x)}"
@@ -132,9 +137,9 @@ class MPCCModel(ABC):
             t = t_
 
         print(
-            f"* (STOPPED) Iteration {k+1}: Solving the NLP problem for t = {t} with complementarity: {self.compute_complementarity(x)}"
+            f"* (STOPPED) Iteration {k + 1}: Solving the NLP problem for t = {t} with complementarity: {self.compute_complementarity(x)}"
         )
-        res["iter"] = k + 1 
+        res["iter"] = k + 1
         return res, x, fn, history
 
 
@@ -203,8 +208,8 @@ class MPCCPenalizedModel(ABC):
         fn = None
 
         print(
-            f'{"Iter": >5}\t{"Termination_status": >15}\t{"Objective": >15}\t{
-          "MPCC_compl": >15}\t{"lg(mu)": >15}\t{"π": >15}\n'
+            f"{'Iter': >5}\t{'Termination_status': >15}\t{'Objective': >15}\t{
+                'MPCC_compl': >15}\t{'lg(mu)': >15}\t{'π': >15}\n"
         )
 
         for k in range(max_iter):
@@ -215,19 +220,19 @@ class MPCCPenalizedModel(ABC):
             )
             comp = self.compute_complementarity(x_)
             print(
-                f'{k: > 5}\t{info_["status"]: > 15}\t{fn_: > 15}\t{
-              comp: > 15}\t{np.log10(mu): > 15}\t{pi: > 15}'
+                f"{k: > 5}\t{info_['status']: > 15}\t{fn_: > 15}\t{comp: > 15}\t{
+                    np.log10(mu): > 15}\t{pi: > 15}"
             )
             if (np.abs(comp) < tol) & (info_["status"] == 0):
                 print(
-                    f"Obtained solution satisfies the complementarity condition at {comp} at {k+1} iterations"
+                    f"Obtained solution satisfies the complementarity condition at {comp} at {k + 1} iterations"
                 )
                 return info_, x_, fn_
             if (np.abs(comp) <= tol_c) & (info_["status"] >= 0):
                 info = info_
                 x = x_
                 fn = fn_
-                #mu *= kappa
+                # mu *= kappa
             # else:
             #     if pi < 1e10:
             #         pi *= sigma
