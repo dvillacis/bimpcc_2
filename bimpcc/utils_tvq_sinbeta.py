@@ -128,14 +128,14 @@ def hat_j_rho(normKu, delta_gamma, q_param, gamma, rho):
 
 def diagonal_j_rho(Ku, delta_gamma, q_param, gamma, rho):
     V = Ku.reshape(2, -1).T
-    normKu = np.apply_along_axis(np.linalg.norm, axis=1, arr=V)
+    normKu = np.apply_along_axis(np.linalg.norm, axis=1, arr=V) + 1e-3
     return hat_j_rho(normKu, delta_gamma, q_param, gamma, rho)
 
 
 def build_nabla_u(u, K, q_param, beta, delta_gamma, gamma, rho, N, M):
     Ku = K @ u
     V = Ku.reshape(2, -1).T
-    normKu = np.apply_along_axis(np.linalg.norm, axis=1, arr=V)
+    normKu = np.apply_along_axis(np.linalg.norm, axis=1, arr=V) + 1e-3
     res = np.ones_like(normKu)
     i1 = np.where(normKu <= 1 / gamma - rho, res, 0)
     i2 = np.where((1 / gamma - rho < normKu) & (normKu <= 1 / gamma + rho), res, 0)

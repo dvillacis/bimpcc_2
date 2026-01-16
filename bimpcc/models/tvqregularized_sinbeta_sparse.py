@@ -80,6 +80,57 @@ class StateConstraintFn(ConstraintFn):
         self.KT = (self.gradient_op.T).tocoo()
         self.K = self.gradient_op.tocoo()
 
+        # ---- Conservative sparse superset for W_u (k-hop closure) ----
+        KTK = (self.KT @ self.K).tocsr()
+
+        # Powers of KTK (patterns grow: 1-hop, 2-hop, 3-hop, ...)
+        KTK1 = KTK.tocoo()
+        KTK1.sum_duplicates()
+
+        KTK2 = (KTK @ KTK).tocoo()
+        KTK2.sum_duplicates()
+
+        KTK3 = (KTK2.tocsr() @ KTK).tocoo()
+        KTK3.sum_duplicates()
+
+        # If you still see extras later, uncomment KTK4
+        # KTK4 = (KTK3.tocsr() @ KTK).tocoo()
+        # KTK4.sum_duplicates()
+
+        # Representative pattern from build_nabla_u at u0
+        u0 = self.noisy_img
+        beta0 = 1.0
+        W_u0 = build_nabla_u(
+            u0,
+            self.K,
+            self.q_param,
+            beta0,
+            self.delta_gamma,
+            self.gamma,
+            self.rho,
+            self.N,
+            self.M,
+        ).tocoo()
+        W_u0.sum_duplicates()
+
+        # Union of patterns (KTK1 ∪ KTK2 ∪ KTK3 ∪ W_u0)
+        r = np.concatenate([KTK1.row, KTK2.row, KTK3.row, W_u0.row]).astype(np.int64, copy=False)
+        c = np.concatenate([KTK1.col, KTK2.col, KTK3.col, W_u0.col]).astype(np.int64, copy=False)
+
+        key = r * np.int64(self.N) + c
+        uniq = np.unique(key)
+        r_u = (uniq // np.int64(self.N)).astype(int)
+        c_u = (uniq % np.int64(self.N)).astype(int)
+
+        self._W_u_pattern_zeros = sp.coo_matrix(
+            (np.zeros(r_u.size, dtype=float), (r_u, c_u)),
+            shape=(self.N, self.N),
+        )
+        self._W_u_diag_zeros = sp.coo_matrix(
+            (np.zeros(self.N, dtype=float), (np.arange(self.N), np.arange(self.N))),
+            shape=(self.N, self.N),
+        )
+
     def __call__(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
         Da = diagonal_j_rho(
@@ -92,9 +143,10 @@ class StateConstraintFn(ConstraintFn):
     def parse_vars(self, x):
         return _parse_vars(x, self.N, self.M)
 
-    def jacobian(self, x: np.ndarray) -> float:
+    def jacobian(self, x: np.ndarray):
         u, q, alpha = self.parse_vars(x)
         beta = float(np.asarray(alpha).squeeze())
+
         W_u = build_nabla_u(
             u,
             self.K,
@@ -106,20 +158,20 @@ class StateConstraintFn(ConstraintFn):
             self.N,
             self.M,
         )
-        vect = (1 / self.delta_gamma) * (u-self.noisy_img)
-        vect_s = sp.coo_matrix(vect.reshape(-1, 1))
-        # Para saber el alpha de cada iteración es correcto usar 
-        print('alpha=',alpha)
-        jac = sp.hstack(
-            [
-                W_u,  # u
-                self.KT,  # q
-                vect_s,  # alpha
-            ]
-        )
-        # return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
-        print(jac.toarray())
-        return jac.toarray()
+
+        # Force constant sparsity (even if some values become exactly 0)
+        W_u = (W_u + self._W_u_pattern_zeros + self._W_u_diag_zeros).tocoo()
+        W_u.sum_duplicates()
+
+        vect = (1 / self.delta_gamma) * (u - self.noisy_img)
+        rows = np.arange(self.N, dtype=int)
+        cols = np.zeros(self.N, dtype=int)
+        vect_s = sp.coo_matrix((vect.astype(float), (rows, cols)), shape=(self.N, 1))
+        vect_s.sum_duplicates()
+
+        jac = sp.hstack([W_u, self.KT, vect_s], format="coo").tocoo()
+        jac.sum_duplicates()
+        return jac
 
 
 class DualConstraintFn(ConstraintFn):
@@ -138,6 +190,14 @@ class DualConstraintFn(ConstraintFn):
         self.Id = sp.eye(self.M).tocoo()
         self.Z_P = sp.coo_matrix((self.M, self.parameter_size))
 
+        # ---- Conservative sparse superset for H_u: pattern(K) ----
+        Kcoo = self.gradient_op.tocoo()
+        Kcoo.sum_duplicates()
+        self._H_u_pattern_zeros = sp.coo_matrix(
+            (np.zeros_like(Kcoo.data, dtype=float), (Kcoo.row, Kcoo.col)),
+            shape=(self.M, self.N),
+        )
+
     def __call__(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
         K = self.gradient_op.tocoo()
@@ -148,17 +208,17 @@ class DualConstraintFn(ConstraintFn):
     def parse_vars(self, x):
         return _parse_vars(x, self.N, self.M)
 
-    def jacobian(self, x: np.ndarray) -> float:
+    def jacobian(self, x: np.ndarray):
         u, q, alpha = self.parse_vars(x)
         H_u = build_jacobian_matrices(self.gradient_op, u, q, self.gamma, self.M)
 
-        # Construcción de la jacobiana usando hstack
-        jac = sp.hstack(
-            [-H_u, self.Id, self.Z_P]  # Matrices en columnas
-        )
-        # Convertir a formato COO para compatibilidad
-        # return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
-        return jac.toarray()
+        # Force constant sparsity (active-set logic can zero entries)
+        H_u = (H_u + self._H_u_pattern_zeros).tocoo()
+        H_u.sum_duplicates()
+
+        jac = sp.hstack([-H_u, self.Id, self.Z_P], format="coo").tocoo()
+        jac.sum_duplicates()
+        return jac
 
 
 class TVqRegularized:
@@ -221,4 +281,4 @@ class TVqRegularized:
             "tol": tol,
             "check_derivatives_for_naninf": "yes",
         }
-        return nlp.solve(self.x0, self.bounds, options=options)
+        return nlp.solve(self.x0, self.bounds, options=options, use_jacobian_sparsity=True)
