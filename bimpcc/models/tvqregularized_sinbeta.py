@@ -106,10 +106,10 @@ class StateConstraintFn(ConstraintFn):
             self.N,
             self.M,
         )
-        vect = (1 / self.delta_gamma) * (u-self.noisy_img)
+        vect = (1 / self.delta_gamma) * (u - self.noisy_img)
         vect_s = sp.coo_matrix(vect.reshape(-1, 1))
-        # Para saber el alpha de cada iteración es correcto usar 
-        print('alpha=',alpha)
+        # Para saber el alpha de cada iteración es correcto usar
+        print("alpha=", alpha)
         jac = sp.hstack(
             [
                 W_u,  # u
@@ -117,7 +117,8 @@ class StateConstraintFn(ConstraintFn):
                 vect_s,  # alpha
             ]
         )
-        return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
+        # return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
+        return jac.toarray()
 
 
 class DualConstraintFn(ConstraintFn):
@@ -155,7 +156,8 @@ class DualConstraintFn(ConstraintFn):
             [-H_u, self.Id, self.Z_P]  # Matrices en columnas
         )
         # Convertir a formato COO para compatibilidad
-        return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
+        # return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
+        return jac.toarray()
 
 
 class TVqRegularized:
@@ -200,7 +202,7 @@ class TVqRegularized:
                     noisy_img,
                     # np.random.randn(N),
                     1e-3 * np.ones(M),
-                    8* np.ones(parameter_size),
+                    100 * np.ones(parameter_size),
                 ]
             )
         else:

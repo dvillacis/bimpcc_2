@@ -41,9 +41,7 @@ class TVDenObjectiveFn(ObjectiveFn):
 
     def __call__(self, x: np.ndarray) -> float:
         u, q, r, delta, theta, alpha = self.parse_vars(x)
-        return (
-            0.5 * np.linalg.norm(u - self.true_img) ** 2
-        )
+        return 0.5 * np.linalg.norm(u - self.true_img) ** 2
 
     def parse_vars(self, x):
         return _parse_vars(x, self.N, self.M)
@@ -68,6 +66,7 @@ class TVDenObjectiveFn(ObjectiveFn):
         )
         return np.diag(d)
 
+
 class StateConstraintFn(ConstraintFn):
     def __init__(
         self,
@@ -76,7 +75,7 @@ class StateConstraintFn(ConstraintFn):
         parameter_size: int = 1,
         q_param: float = 0.99,
         gamma_param: int = 100,
-        rho: int = 0.001
+        rho: int = 0.001,
     ):
         self.noisy_img = noisy_img.flatten()
         self.gradient_op = gradient_op
@@ -91,21 +90,36 @@ class StateConstraintFn(ConstraintFn):
         self.q_param = q_param
         self.gamma_param = gamma_param
         self.rho = rho
-        self.delta_gamma = self.q_param**self.q_param*(self.gamma_param**(1-self.q_param))
+        self.delta_gamma = self.q_param**self.q_param * (
+            self.gamma_param ** (1 - self.q_param)
+        )
 
     def __call__(self, x: np.ndarray) -> float:
         u, q, r, delta, theta, alpha = self.parse_vars(x)
-        Da = diagonal_j_rho(self.K @ u, self.delta_gamma, self.q_param, self.gamma_param, self.rho)
-        return (-1/self.delta_gamma)*(self.KT @ Da @ self.gradient_op@u - alpha*(u - self.noisy_img)) + self.KT @ q
+        Da = diagonal_j_rho(
+            self.K @ u, self.delta_gamma, self.q_param, self.gamma_param, self.rho
+        )
+        return (-1 / self.delta_gamma) * (
+            self.KT @ Da @ self.gradient_op @ u - alpha * (u - self.noisy_img)
+        ) + self.KT @ q
 
     def parse_vars(self, x):
         return _parse_vars(x, self.N, self.M)
 
     def jacobian(self, x: np.ndarray) -> float:
         u, q, r, delta, theta, alpha = self.parse_vars(x)
-        beta = float(np.asarray(alpha).squeeze())
-        W_u = build_nabla_u(u, self.K, self.q_param, alpha, self.delta_gamma, self.gamma_param, self.rho, self.N, self.M)
-        vect = (1 / self.delta_gamma) * (u-self.noisy_img)
+        W_u = build_nabla_u(
+            u,
+            self.K,
+            self.q_param,
+            alpha[0],
+            self.delta_gamma,
+            self.gamma_param,
+            self.rho,
+            self.N,
+            self.M,
+        )
+        vect = (1 / self.delta_gamma) * (u - self.noisy_img)
         vect_s = sp.coo_matrix(vect.reshape(-1, 1))
         jac = sp.hstack(
             [
@@ -117,7 +131,8 @@ class StateConstraintFn(ConstraintFn):
                 vect_s,  # alpha
             ]
         )
-        return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
+        # return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
+        return jac.toarray()
 
 
 class PrimalConstraintFn(ConstraintFn):
@@ -163,7 +178,8 @@ class PrimalConstraintFn(ConstraintFn):
                 self.Z_P,  # alpha
             ]
         )
-        return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
+        # return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
+        return jac.toarray()
 
 
 class DualConstraintFn(ConstraintFn):
@@ -222,7 +238,8 @@ class DualConstraintFn(ConstraintFn):
                 self.Z_P,  # alpha
             ]
         )
-        return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
+        # return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
+        return jac.toarray()
 
 
 class BoundConstraintFn(ConstraintFn):
@@ -255,7 +272,8 @@ class BoundConstraintFn(ConstraintFn):
                 self.Z_P,  # alpha
             ]
         )
-        return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
+        # return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
+        return jac.toarray()
 
 
 class TVDenComplementarityConstraintFn(ComplementarityConstraintFn):
@@ -270,30 +288,32 @@ class TVDenComplementarityConstraintFn(ComplementarityConstraintFn):
         self.Id = sp.diags(np.ones(self.R), format="coo")
         self.Z_P = sp.coo_matrix((self.R, self.parameter_size))
         self.t = t
-  
 
     def __call__(self, x: np.ndarray) -> float:
         u, q, r, delta, theta, alpha = self.parse_vars(x)
         return self.t - (r * (np.ones(self.R) - delta))
 
     def parse_vars(self, x):
-         return _parse_vars(x, self.N, self.M)
+        return _parse_vars(x, self.N, self.M)
 
     def jacobian(self, x: np.ndarray) -> float:
-         u, q, r, delta, theta, alpha = self.parse_vars(x)
-         Jr = sp.coo_matrix((np.ones(self.R) - delta, (np.arange(self.R), np.arange(self.R))))
-         Jdelta = sp.coo_matrix((r, (np.arange(self.R), np.arange(self.R))))
-         jac = sp.hstack(
-             [
-                 self.Z_N,  # u
-                 self.Z_M,  # q
-                 -Jr,  # r
-                 Jdelta,  # delta
-                 self.Z_R,  # theta
-                 self.Z_P,  # alpha
-             ]
-         )
-         return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
+        u, q, r, delta, theta, alpha = self.parse_vars(x)
+        Jr = sp.coo_matrix(
+            (np.ones(self.R) - delta, (np.arange(self.R), np.arange(self.R)))
+        )
+        Jdelta = sp.coo_matrix((r, (np.arange(self.R), np.arange(self.R))))
+        jac = sp.hstack(
+            [
+                self.Z_N,  # u
+                self.Z_M,  # q
+                -Jr,  # r
+                Jdelta,  # delta
+                self.Z_R,  # theta
+                self.Z_P,  # alpha
+            ]
+        )
+        # return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
+        return jac.toarray()
 
 
 class TVDenoisingMPCC(MPCCModel):
@@ -315,7 +335,14 @@ class TVDenoisingMPCC(MPCCModel):
         R = M // 2
         objective_func = TVDenObjectiveFn(true_img, K, epsilon=epsilon)
         eq_constraint_funcs = [
-            StateConstraintFn(noisy_img, K, parameter_size = parameter_size, q_param = q_param, gamma_param =100, rho = 0.001),
+            StateConstraintFn(
+                noisy_img,
+                K,
+                parameter_size=parameter_size,
+                q_param=q_param,
+                gamma_param=100,
+                rho=0.001,
+            ),
             PrimalConstraintFn(K),
             DualConstraintFn(K, Kx, Ky),
         ]
@@ -341,7 +368,7 @@ class TVDenoisingMPCC(MPCCModel):
                     1e-3 * np.ones(R),
                     1e-3 * np.ones(R),
                     1e-3 * np.ones(R),
-                    1e-3 * np.ones(parameter_size),
+                    100 * np.ones(parameter_size),
                 ]
             )
 
@@ -357,4 +384,4 @@ class TVDenoisingMPCC(MPCCModel):
 
     def compute_complementarity(self, x):
         u, q, r, delta, theta, alpha = self.objective_func.parse_vars(x)
-        return np.linalg.norm(np.minimum(r, np.ones(self.R) - delta))
+        return np.linalg.norm(np.minimum(r, np.ones_like(r) - delta))
