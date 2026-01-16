@@ -150,7 +150,7 @@ def hat_j_rho(normKu, delta_gamma, q_param, gamma, rho, eps=1e-12):
 
 def diagonal_j_rho(Ku, delta_gamma, q_param, gamma, rho):
     V = Ku.reshape(2, -1).T
-    normKu = np.apply_along_axis(np.linalg.norm, axis=1, arr=V)
+    normKu = np.apply_along_axis(np.linalg.norm, axis=1, arr=V) + 1e-3
     return hat_j_rho(normKu, delta_gamma, q_param, gamma, rho)
 
 
