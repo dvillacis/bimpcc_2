@@ -75,24 +75,49 @@ class StateConstraintFn(ConstraintFn):
         parameter_size: int = 1,
         q_param: float = 0.99,
         gamma_param: int = 100,
-        rho: int = 0.001,
+        rho: float = 0.001,
     ):
         self.noisy_img = noisy_img.flatten()
         self.gradient_op = gradient_op
         self.M, self.N = gradient_op.shape
         self.R = self.M // 2
         self.parameter_size = parameter_size
+        self.gamma_param = gamma_param
+        self.rho = rho
+        self.q_param = q_param
+        self.delta_gamma = (gamma_param ** (1 - q_param)) * (q_param**q_param)
         self.Id = sp.eye(self.N).tocoo()
         self.KT = (self.gradient_op.T).tocoo()
         self.K = self.gradient_op.tocoo()
         self.Z_R = sp.coo_matrix((self.N, self.R))
-        self.Z_P = sp.coo_matrix((self.N, self.parameter_size))
         self.q_param = q_param
-        self.gamma_param = gamma_param
-        self.rho = rho
-        self.delta_gamma = self.q_param**self.q_param * (
-            self.gamma_param ** (1 - self.q_param)
+
+        # ---- 1. Build FIXED sparsity superset (4-hop closure) ----
+        KTK = (self.KT @ self.K).tocsr()
+        KTK2 = (KTK @ KTK).tocsr()
+        W_superset = (KTK2 @ KTK2).tocoo()
+
+        # Add diagonal explicitly
+        diag_idx = np.arange(self.N)
+        diag = sp.coo_matrix(
+            (np.zeros(self.N), (diag_idx, diag_idx)), shape=(self.N, self.N)
         )
+
+        W_superset = (W_superset + diag).tocoo()
+        W_superset.sum_duplicates()
+
+        # Store the FIXED pattern indices for W_u
+        self.W_row = W_superset.row
+        self.W_col = W_superset.col
+        self.W_nnz = W_superset.nnz
+
+        # Map (row, col) pairs to a flat index [0...W_nnz-1] for fast filling
+        # This allows us to put built values into their correct fixed slot
+        self.W_keys = self.W_row * self.N + self.W_col
+
+        # Structure for the 'alpha' column (fixed dense column)
+        self.alpha_row = np.arange(self.N)
+        self.alpha_col = np.zeros(self.N, dtype=int)
 
     def __call__(self, x: np.ndarray) -> float:
         u, q, r, delta, theta, alpha = self.parse_vars(x)
@@ -100,39 +125,86 @@ class StateConstraintFn(ConstraintFn):
             self.K @ u, self.delta_gamma, self.q_param, self.gamma_param, self.rho
         )
         return (-1 / self.delta_gamma) * (
-            self.KT @ Da @ self.gradient_op @ u - alpha * (u - self.noisy_img)
+            self.KT @ Da @ self.K @ u - alpha[0] * (u - self.noisy_img)
         ) + self.KT @ q
 
     def parse_vars(self, x):
         return _parse_vars(x, self.N, self.M)
 
-    def jacobian(self, x: np.ndarray) -> float:
+    def jacobian(self, x: np.ndarray):
         u, q, r, delta, theta, alpha = self.parse_vars(x)
-        W_u = build_nabla_u(
+        beta = float(np.asarray(alpha).squeeze())
+
+        # 1. Compute current Jacobian values (sparse)
+        W_computed = build_nabla_u(
             u,
             self.K,
             self.q_param,
-            alpha[0],
+            beta,
             self.delta_gamma,
             self.gamma_param,
             self.rho,
             self.N,
             self.M,
+        ).tocoo()
+
+        # 2. FILL into the FIXED rigid structure
+        # We create a new COO matrix using the PRE-COMPUTED rows/cols
+        # and populate it with values where they exist.
+
+        # Map computed (r,c) to sorting keys
+        comp_keys = W_computed.row * self.N + W_computed.col
+
+        # Find where computed entries belong in our fixed structure
+        # (searchsorted requires sorted keys, but W_computed might not be sorted by duplicate summing)
+        # So we sort computed first to be safe
+        order = np.argsort(comp_keys)
+        comp_keys = comp_keys[order]
+        comp_data = W_computed.data[order]
+
+        # Indices in self.W_keys where computed values match
+        # This relies on self.W_keys being sorted (it is because we created it from a canonical COO)
+        # But wait, COO.row/col aren't strictly 1D sorted. Let's ensure strict sort of fixed keys:
+        if not hasattr(self, "_keys_sorted"):
+            order_fixed = np.argsort(self.W_keys)
+            self.W_keys = self.W_keys[order_fixed]
+            self.W_row = self.W_row[order_fixed]
+            self.W_col = self.W_col[order_fixed]
+            self._keys_sorted = True
+
+        idx = np.searchsorted(self.W_keys, comp_keys)
+
+        # Create the data array of fixed size, filled with zeros
+        data_fixed = np.zeros(self.W_nnz, dtype=float)
+
+        # Place found values.
+        # Safety check: ensure we only map keys that actually exist in superset
+        # (Our KT^4 logic is conservative so this should be 100%, but good for debug)
+        valid = (idx < self.W_nnz) & (self.W_keys[idx] == comp_keys)
+        data_fixed[idx[valid]] = comp_data[valid]
+
+        # Reconstruct W_u with FIXED structure
+        W_u = sp.coo_matrix(
+            (data_fixed, (self.W_row, self.W_col)), shape=(self.N, self.N)
         )
+
+        # 3. Alpha part (Fixed structure)
         vect = (1 / self.delta_gamma) * (u - self.noisy_img)
-        vect_s = sp.coo_matrix(vect.reshape(-1, 1))
-        jac = sp.hstack(
-            [
-                W_u,  # u
-                self.KT,  # q
-                self.Z_R,  # r
-                self.Z_R,  # delta
-                self.Z_R,  # theta
-                vect_s,  # alpha
-            ]
+        vect_s = sp.coo_matrix(
+            (vect.astype(float), (self.alpha_row, self.alpha_col)), shape=(self.N, 1)
         )
-        # return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
-        return jac.toarray()
+
+        # 4. Final Stack
+        # Ensure we don't accidentally merge and lose zeros.
+        # But sp.hstack might reorder.
+        # Since we use strict Supersets, let hstack do its work, then sum_duplicates
+        # (which preserves explicit zeros usually, but let's see).
+
+        jac = sp.hstack(
+            [W_u, self.KT, self.Z_R, self.Z_R, self.Z_R, vect_s], format="coo"
+        )
+        jac.sum_duplicates()
+        return jac
 
 
 class PrimalConstraintFn(ConstraintFn):
@@ -178,8 +250,7 @@ class PrimalConstraintFn(ConstraintFn):
                 self.Z_P,  # alpha
             ]
         )
-        # return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
-        return jac.toarray()
+        return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
 
 
 class DualConstraintFn(ConstraintFn):
@@ -238,8 +309,7 @@ class DualConstraintFn(ConstraintFn):
                 self.Z_P,  # alpha
             ]
         )
-        # return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
-        return jac.toarray()
+        return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
 
 
 class BoundConstraintFn(ConstraintFn):
@@ -272,8 +342,7 @@ class BoundConstraintFn(ConstraintFn):
                 self.Z_P,  # alpha
             ]
         )
-        # return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
-        return jac.toarray()
+        return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
 
 
 class TVDenComplementarityConstraintFn(ComplementarityConstraintFn):
@@ -312,8 +381,7 @@ class TVDenComplementarityConstraintFn(ComplementarityConstraintFn):
                 self.Z_P,  # alpha
             ]
         )
-        # return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
-        return jac.toarray()
+        return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
 
 
 class TVDenoisingMPCC(MPCCModel):

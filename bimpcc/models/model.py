@@ -55,8 +55,10 @@ class MPCCModel(ABC):
             "acceptable_tol": 1e-5,
             "constr_viol_tol": 1e-5,
             "nlp_scaling_method": "gradient-based",
+            "sb": "no",  # quita el banner “silencioso”
+            "output_file": "ipopt_mpcc.log",  # guarda todo el log aquí
         }
-        return nlp.solve(x0, bounds, options=options)
+        return nlp.solve(x0, bounds, options=options, use_jacobian_sparsity=True)
 
     def solve(
         self,
