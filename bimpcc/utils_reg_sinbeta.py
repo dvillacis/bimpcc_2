@@ -7,7 +7,7 @@ from scipy.sparse import diags
 from L2TVMPCCReg import build_jacobian_matrices as bjm
 
 
-def build_index_sets(v, gamma, M):
+def build_index_sets_orig(v, gamma, M):
     V = v.reshape(2, -1).T
     norm = np.apply_along_axis(np.linalg.norm, axis=1, arr=V)
     res = np.ones_like(norm)
@@ -34,6 +34,47 @@ def build_index_sets(v, gamma, M):
     )
     L_1 = sp.coo_matrix((np.concatenate((a, a)), (np.arange(M), np.arange(M))))
     L_2 = sp.coo_matrix((np.concatenate((c, c)), (np.arange(M), np.arange(M))))
+    return A_gamma, I_gamma, S_gamma, L_1, L_2
+
+
+def build_index_sets(v, gamma, M, eps=1e-12):
+    V = v.reshape(2, -1).T
+    norm = np.linalg.norm(V, axis=1)
+
+    res = np.ones_like(norm, dtype=float)
+
+    a_gamma = np.where(gamma * norm >= 1 + 0.5 / gamma, res, 0.0)
+    i_gamma = np.where(gamma * norm <= 1 - 0.5 / gamma, res, 0.0)
+    s_gamma = 1.0 - a_gamma - i_gamma
+
+    # máscara: índices donde es seguro dividir
+    nz = norm > eps
+    norm_safe = np.maximum(norm, eps)  # evita /0 en cualquier caso
+
+    # a = 1/norm (y 0 si norm es pequeño)
+    a = np.zeros_like(norm, dtype=float)
+    a[nz] = 1.0 / norm_safe[nz]
+
+    # c = (...) / norm (y 0 si norm es pequeño)
+    c = np.zeros_like(norm, dtype=float)
+    tmp = 1.0 - gamma * norm + (0.5 / gamma)  # vector (M,)
+    numer = 1.0 - 0.5 * gamma * (tmp**2)  # vector (M,)
+    c[nz] = numer[nz] / norm_safe[nz]
+
+    idx = np.arange(M)
+
+    A_gamma = sp.coo_matrix(
+        (np.concatenate((a_gamma, a_gamma)), (idx, idx)), shape=(M, M)
+    )
+    I_gamma = sp.coo_matrix(
+        (np.concatenate((i_gamma, i_gamma)), (idx, idx)), shape=(M, M)
+    )
+    S_gamma = sp.coo_matrix(
+        (np.concatenate((s_gamma, s_gamma)), (idx, idx)), shape=(M, M)
+    )
+    L_1 = sp.coo_matrix((np.concatenate((a, a)), (idx, idx)), shape=(M, M))
+    L_2 = sp.coo_matrix((np.concatenate((c, c)), (idx, idx)), shape=(M, M))
+
     return A_gamma, I_gamma, S_gamma, L_1, L_2
 
 

@@ -219,5 +219,7 @@ class TVqRegularized:
             "max_iter": max_iter,
             "tol": tol,
             "check_derivatives_for_naninf": "yes",
+            "sb": "no",  # quita el banner “silencioso”
+            "output_file": "ipopt.log",  # guarda todo el log aquí
         }
         return nlp.solve(self.x0, self.bounds, options=options)

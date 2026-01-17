@@ -84,19 +84,21 @@ class StateConstraintFn(ConstraintFn):
         KTK = (self.KT @ self.K).tocsr()
         KTK2 = (KTK @ KTK).tocsr()
         W_superset = (KTK2 @ KTK2).tocoo()
-        
+
         # Add diagonal explicitly
         diag_idx = np.arange(self.N)
-        diag = sp.coo_matrix((np.zeros(self.N), (diag_idx, diag_idx)), shape=(self.N, self.N))
-        
+        diag = sp.coo_matrix(
+            (np.zeros(self.N), (diag_idx, diag_idx)), shape=(self.N, self.N)
+        )
+
         W_superset = (W_superset + diag).tocoo()
         W_superset.sum_duplicates()
-        
+
         # Store the FIXED pattern indices for W_u
         self.W_row = W_superset.row
         self.W_col = W_superset.col
         self.W_nnz = W_superset.nnz
-        
+
         # Map (row, col) pairs to a flat index [0...W_nnz-1] for fast filling
         # This allows us to put built values into their correct fixed slot
         self.W_keys = self.W_row * self.N + self.W_col
@@ -133,55 +135,60 @@ class StateConstraintFn(ConstraintFn):
             self.N,
             self.M,
         ).tocoo()
+        print(alpha)
 
         # 2. FILL into the FIXED rigid structure
         # We create a new COO matrix using the PRE-COMPUTED rows/cols
         # and populate it with values where they exist.
-        
+
         # Map computed (r,c) to sorting keys
         comp_keys = W_computed.row * self.N + W_computed.col
-        
+
         # Find where computed entries belong in our fixed structure
         # (searchsorted requires sorted keys, but W_computed might not be sorted by duplicate summing)
         # So we sort computed first to be safe
         order = np.argsort(comp_keys)
         comp_keys = comp_keys[order]
         comp_data = W_computed.data[order]
-        
+
         # Indices in self.W_keys where computed values match
         # This relies on self.W_keys being sorted (it is because we created it from a canonical COO)
         # But wait, COO.row/col aren't strictly 1D sorted. Let's ensure strict sort of fixed keys:
-        if not hasattr(self, '_keys_sorted'):
-             order_fixed = np.argsort(self.W_keys)
-             self.W_keys = self.W_keys[order_fixed]
-             self.W_row = self.W_row[order_fixed]
-             self.W_col = self.W_col[order_fixed]
-             self._keys_sorted = True
+        if not hasattr(self, "_keys_sorted"):
+            order_fixed = np.argsort(self.W_keys)
+            self.W_keys = self.W_keys[order_fixed]
+            self.W_row = self.W_row[order_fixed]
+            self.W_col = self.W_col[order_fixed]
+            self._keys_sorted = True
 
         idx = np.searchsorted(self.W_keys, comp_keys)
-        
+
         # Create the data array of fixed size, filled with zeros
         data_fixed = np.zeros(self.W_nnz, dtype=float)
-        
-        # Place found values. 
+
+        # Place found values.
         # Safety check: ensure we only map keys that actually exist in superset
         # (Our KT^4 logic is conservative so this should be 100%, but good for debug)
         valid = (idx < self.W_nnz) & (self.W_keys[idx] == comp_keys)
         data_fixed[idx[valid]] = comp_data[valid]
-        
+
         # Reconstruct W_u with FIXED structure
-        W_u = sp.coo_matrix((data_fixed, (self.W_row, self.W_col)), shape=(self.N, self.N))
-        
+        W_u = sp.coo_matrix(
+            (data_fixed, (self.W_row, self.W_col)), shape=(self.N, self.N)
+        )
+
         # 3. Alpha part (Fixed structure)
         vect = (1 / self.delta_gamma) * (u - self.noisy_img)
-        vect_s = sp.coo_matrix((vect.astype(float), (self.alpha_row, self.alpha_col)), shape=(self.N, 1))
+        vect_s = sp.coo_matrix(
+            (vect.astype(float), (self.alpha_row, self.alpha_col)), shape=(self.N, 1)
+        )
 
         # 4. Final Stack
         # Ensure we don't accidentally merge and lose zeros.
         # But sp.hstack might reorder.
-        # Since we use strict Supersets, let hstack do its work, then sum_duplicates 
+        # Since we use strict Supersets, let hstack do its work, then sum_duplicates
         # (which preserves explicit zeros usually, but let's see).
-        
+
         jac = sp.hstack([W_u, self.KT, vect_s], format="coo")
         jac.sum_duplicates()
         return jac
@@ -204,20 +211,20 @@ class DualConstraintFn(ConstraintFn):
         self.Z_P = sp.coo_matrix((self.M, self.parameter_size))
 
         # ---- 1. Build FIXED sparsity superset for H_u ----
-        # H_u structure is dominated by K. 
+        # H_u structure is dominated by K.
         # Sometimes H_u terms cancel out or become zero based on active sets.
         # We use pattern(K) as the safe superset.
         self.K = self.gradient_op.tocoo()
         self.K.sum_duplicates()
-        
+
         # Store FIXED pattern indices
         self.H_row = self.K.row
         self.H_col = self.K.col
         self.H_nnz = self.K.nnz
-        
+
         # Map (row, col) pairs to flat indices for fast filling
         self.H_keys = self.H_row * self.N + self.H_col
-        
+
         # To ensure binary search works, we need to sort our fixed keys once
         order_fixed = np.argsort(self.H_keys)
         self.H_keys = self.H_keys[order_fixed]
@@ -236,35 +243,39 @@ class DualConstraintFn(ConstraintFn):
 
     def jacobian(self, x: np.ndarray):
         u, q, alpha = self.parse_vars(x)
-        
+
         # 1. Compute current H_u (sparse, might have dropped zeros)
         # Note: build_jacobian_matrices usually returns -(A @ L1_dot_K + ...)
         # Ensure we handle the sign correctly relative to the formula
-        H_u = build_jacobian_matrices(self.gradient_op, u, q, self.gamma, self.M).tocoo()
+        H_u = build_jacobian_matrices(
+            self.gradient_op, u, q, self.gamma, self.M
+        ).tocoo()
 
         # 2. FILL into the FIXED structure
         comp_keys = H_u.row * self.N + H_u.col
         order = np.argsort(comp_keys)
         comp_keys = comp_keys[order]
         comp_data = H_u.data[order]
-        
+
         idx = np.searchsorted(self.H_keys, comp_keys)
-        
+
         # Create fixed data array
         data_fixed = np.zeros(self.H_nnz, dtype=float)
-        
+
         # Map valid entries
         valid = (idx < self.H_nnz) & (self.H_keys[idx] == comp_keys)
         data_fixed[idx[valid]] = comp_data[valid]
-        
+
         # Reconstruct with FIXED structure
-        H_u_fixed = sp.coo_matrix((data_fixed, (self.H_row, self.H_col)), shape=(self.M, self.N))
+        H_u_fixed = sp.coo_matrix(
+            (data_fixed, (self.H_row, self.H_col)), shape=(self.M, self.N)
+        )
 
         # 3. Final Stack
         # Formula: [-H_u, Id, Z_P]
         # We manually apply the negative sign here to the data
         H_u_fixed.data *= -1.0
-        
+
         jac = sp.hstack([H_u_fixed, self.Id, self.Z_P], format="coo")
         jac.sum_duplicates()
         return jac
@@ -329,5 +340,9 @@ class TVqRegularized:
             "max_iter": max_iter,
             "tol": tol,
             "check_derivatives_for_naninf": "yes",
+            "sb": "no",  # quita el banner “silencioso”
+            "output_file": "ipopt.log",  # guarda todo el log aquí
         }
-        return nlp.solve(self.x0, self.bounds, options=options, use_jacobian_sparsity=True)
+        return nlp.solve(
+            self.x0, self.bounds, options=options, use_jacobian_sparsity=True
+        )

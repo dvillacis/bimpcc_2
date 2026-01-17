@@ -60,6 +60,7 @@ class MPCCModel(ABC):
 
     def solve(
         self,
+        t_init: float = 0.1,
         t_min: float = 1e-5,
         max_iter: int = 10,
         tol: float = 1e-3,
@@ -72,7 +73,7 @@ class MPCCModel(ABC):
         **kwargs,
     ):
         x = self.x0
-        t = 0.1  # self.t
+        t = t_init  # self.t
         res = None
         fn = None
 
@@ -117,7 +118,7 @@ class MPCCModel(ABC):
                         t: > 15}"
                 )
                 res["iter"] = k
-                return res, x_, fn
+                return res, x_, fn, history
             # status = ""
             if res["status"] >= 0:
                 t_ = max(t_min, beta * t)
