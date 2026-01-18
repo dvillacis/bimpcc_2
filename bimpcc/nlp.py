@@ -48,7 +48,7 @@ class ObjectiveFn(Protocol):
 
     def hessian(self, x: np.ndarray) -> float:
         pass
-    
+
 
 class PenalizedObjectiveFn(Protocol):
     def __init__(self, pi: float = 1.0) -> None:
@@ -65,6 +65,7 @@ class PenalizedObjectiveFn(Protocol):
 
     def hessian(self, x: np.ndarray) -> float:
         pass
+
 
 class _CyIpoptSparseJacNLP:
     """
@@ -83,15 +84,17 @@ class _CyIpoptSparseJacNLP:
         self.objective_func = objective_func
         self.eq_constraint_funcs = eq_constraint_funcs or []
         self.ineq_constraint_funcs = ineq_constraint_funcs or []
-        
+
+        # --- NEW: iteration counter for IPOPT (updated by intermediate callback) ---
+        self._iter_count = 0
+
         # Merge all into a flat list of (type, fun)
-        self._all_constraints = (
-            [("eq", c) for c in self.eq_constraint_funcs]
-            + [("ineq", c) for c in self.ineq_constraint_funcs]
-        )
+        self._all_constraints = [("eq", c) for c in self.eq_constraint_funcs] + [
+            ("ineq", c) for c in self.ineq_constraint_funcs
+        ]
 
         self.n = int(np.asarray(x0).size)
-        
+
         # 1. Calculate bounds and sizes
         cl_list, cu_list, self._c_sizes = [], [], []
         for ctype, cfun in self._all_constraints:
@@ -111,29 +114,59 @@ class _CyIpoptSparseJacNLP:
 
         # 2. Build sparsity pattern ONCE at x0
         rows_all, cols_all = [], []
-        self._block_meta = [] # Storage for (constraint_func, expected_nnz)
+        self._block_meta = []  # Storage for (constraint_func, expected_nnz)
 
         row_offset = 0
         for (ctype, cfun), m_i in zip(self._all_constraints, self._c_sizes):
             J = cfun.jacobian(x0)
             Jcoo = J.tocoo() if sp.issparse(J) else sp.coo_matrix(J)
-            Jcoo.sum_duplicates() # Vital: Merge duplicates
+            Jcoo.sum_duplicates()  # Vital: Merge duplicates
 
             # Canonical sort order is required for consistent value mapping
             order = np.lexsort((Jcoo.col, Jcoo.row))
-            
+
             # Store global pattern
             rows_all.append(Jcoo.row[order] + row_offset)
             cols_all.append(Jcoo.col[order])
-            
-            self._block_meta.append({
-                "fun": cfun,
-                "expected_nnz": Jcoo.nnz,
-            })
+
+            self._block_meta.append(
+                {
+                    "fun": cfun,
+                    "expected_nnz": Jcoo.nnz,
+                }
+            )
             row_offset += m_i
 
-        self._jac_rows = np.concatenate(rows_all).astype(int) if rows_all else np.array([], dtype=int)
-        self._jac_cols = np.concatenate(cols_all).astype(int) if cols_all else np.array([], dtype=int)
+        self._jac_rows = (
+            np.concatenate(rows_all).astype(int)
+            if rows_all
+            else np.array([], dtype=int)
+        )
+        self._jac_cols = (
+            np.concatenate(cols_all).astype(int)
+            if cols_all
+            else np.array([], dtype=int)
+        )
+
+        # --- NEW: IPOPT intermediate callback (called each iteration) ---
+
+    def intermediate(
+        self,
+        alg_mod,
+        iter_count,
+        obj_value,
+        inf_pr,
+        inf_du,
+        mu,
+        d_norm,
+        regularization_size,
+        alpha_du,
+        alpha_pr,
+        ls_trials,
+    ):
+        # Save iteration count (IPOPT's own counter)
+        self._iter_count = int(iter_count)
+        return True  # True => continue optimization
 
     # IPOPT Callbacks
     def objective(self, x: np.ndarray) -> float:
@@ -144,7 +177,9 @@ class _CyIpoptSparseJacNLP:
 
     def constraints(self, x: np.ndarray) -> np.ndarray:
         parts = [np.atleast_1d(cfun(x)) for _, cfun in self._all_constraints]
-        return np.concatenate(parts).astype(float) if parts else np.array([], dtype=float)
+        return (
+            np.concatenate(parts).astype(float) if parts else np.array([], dtype=float)
+        )
 
     def jacobianstructure(self):
         return self._jac_rows, self._jac_cols
@@ -171,7 +206,11 @@ class _CyIpoptSparseJacNLP:
             order = np.lexsort((Jcoo.col, Jcoo.row))
             data_blocks.append(Jcoo.data[order])
 
-        return np.concatenate(data_blocks).astype(float) if data_blocks else np.array([], dtype=float)
+        return (
+            np.concatenate(data_blocks).astype(float)
+            if data_blocks
+            else np.array([], dtype=float)
+        )
 
 
 class OptimizationProblem:
@@ -227,13 +266,21 @@ class OptimizationProblem:
             return result, result["x"], result["fun"]
 
         # --- Sparse-jacobian IPOPT path (uses jacobianstructure) ---
-        lb = np.array([(-np.inf if b[0] is None else float(b[0])) for b in bounds], dtype=float)
-        ub = np.array([(np.inf if b[1] is None else float(b[1])) for b in bounds], dtype=float)
+        lb = np.array(
+            [(-np.inf if b[0] is None else float(b[0])) for b in bounds], dtype=float
+        )
+        ub = np.array(
+            [(np.inf if b[1] is None else float(b[1])) for b in bounds], dtype=float
+        )
 
         nlp = _CyIpoptSparseJacNLP(
             objective_func=self.objective_func,
-            eq_constraint_funcs=[c["fun"] for c in self.constraints if c["type"] == "eq"],
-            ineq_constraint_funcs=[c["fun"] for c in self.constraints if c["type"] == "ineq"],
+            eq_constraint_funcs=[
+                c["fun"] for c in self.constraints if c["type"] == "eq"
+            ],
+            ineq_constraint_funcs=[
+                c["fun"] for c in self.constraints if c["type"] == "ineq"
+            ],
             x0=x0,
         )
 
@@ -255,7 +302,20 @@ class OptimizationProblem:
             prob.add_option(k, v)
 
         x_opt, info = prob.solve(x0)
-        result = {"x": x_opt, "fun": info.get("obj_val", np.nan), "info": info, "status": info.get("status", None)}
+        # result = {"x": x_opt, "fun": info.get("obj_val", np.nan), "info": info, "status": info.get("status", None)}
+        # return result, result["x"], result["fun"]
+        # --- NEW: attach iteration count from intermediate callback ---
+        nit = getattr(nlp, "_iter_count", None)
+        info = dict(info)
+        info["iter_count"] = nit
+
+        result = {
+            "x": x_opt,
+            "fun": info.get("obj_val", np.nan),
+            "info": info,
+            "status": info.get("status", None),
+            "nit": nit,
+        }
         return result, result["x"], result["fun"]
 
 

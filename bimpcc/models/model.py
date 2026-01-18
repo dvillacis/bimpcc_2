@@ -86,7 +86,7 @@ class MPCCModel(ABC):
         )
         for k in range(max_iter):
             if t <= t_min:
-                print(f"Intermediate result: {res}")
+                # print(f"Intermediate result: {res}")
                 # print(f"Intermediate x: {x}")
                 print(f"Intermediate fn: {fn}")
                 print(f"complementarity: {self.compute_complementarity(x)}")
@@ -100,7 +100,8 @@ class MPCCModel(ABC):
                 max_iter=nlp_max_iter,
             )
             self.comp = self.compute_complementarity(x_)
-
+            # print(res.keys()) revisamos si hay nit
+            # print("info", res["info"].keys())
             nlp_iter_k = res.get("nit", None)
             alpha_k = float(x_[-1])
             history.append(
