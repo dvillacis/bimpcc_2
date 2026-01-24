@@ -84,6 +84,8 @@ def get_dataset(dataset_name, scale=256, folder="datasets", random_state=None):
         return Dataset("datasets/tigre/tigre.jpg", scale, random_state)
     elif dataset_name == "mariposa":
         return Dataset("datasets/mariposa/mariposa.jpeg", scale, random_state)
+    elif dataset_name == "square":
+        return Dataset("datasets/square/square.png", scale, random_state)
     elif dataset_name == "synthetic":
         return Synthetic(scale)
     else:
