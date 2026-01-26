@@ -6,7 +6,12 @@ from bimpcc.utils import gaussian_blur_sparse_matrix_symmetric
 
 
 def load_and_scale_image(
-    image_path, target_pixels, add_noise=False, add_blur=False, random_state=None
+    image_path,
+    target_pixels,
+    add_noise=False,
+    add_blur=False,
+    random_state=None,
+    desv_est=0.015,
 ) -> np.ndarray:
     image = Image.open(image_path).convert("L")
     resized_image = image.resize((target_pixels, target_pixels))
@@ -16,7 +21,7 @@ def load_and_scale_image(
         rng = np.random.default_rng(random_state)
         # np.random.seed(random_state)
         # noise = 0.05*np.random.randn(target_pixels, target_pixels)
-        noise = rng.normal(0, 0.035, grayscale_image.shape)
+        noise = rng.normal(0, desv_est, grayscale_image.shape)
         grayscale_image += noise
 
     if add_blur:
@@ -37,11 +42,11 @@ def load_and_scale_image(
 
 
 class Dataset(ABC):
-    def __init__(self, path, scale=256, random_state=None):
+    def __init__(self, path, scale=256, random_state=None, desv_est=0.015):
         self.scale = scale
         self.img_true = load_and_scale_image(path, scale)
         self.img_noisy = load_and_scale_image(
-            path, scale, add_noise=True, random_state=random_state
+            path, scale, add_noise=True, random_state=random_state, desv_est=0.015
         )
 
     def get_training_data(self):
@@ -49,11 +54,16 @@ class Dataset(ABC):
 
 
 class BlurDataset(ABC):
-    def __init__(self, path, scale=256, random_state=None):
+    def __init__(self, path, scale=256, random_state=None, desv_est=0.015):
         self.scale = scale
         self.img_true = load_and_scale_image(path, scale)
         self.img_noisy = load_and_scale_image(
-            path, scale, add_noise=True, add_blur=True, random_state=random_state
+            path,
+            scale,
+            add_noise=True,
+            add_blur=True,
+            random_state=random_state,
+            desv_est=0.015,
         )
 
     def get_training_data(self):
@@ -71,34 +81,44 @@ class Synthetic:
         return self.img_true, self.img_noisy
 
 
-def get_dataset(dataset_name, scale=256, folder="datasets", random_state=None):
+def get_dataset(
+    dataset_name, scale=256, folder="datasets", random_state=None, desv_est=0.015
+):
     if dataset_name == "cameraman":
-        return Dataset("datasets/cameraman/cameraman.png", scale, random_state)
+        return Dataset(
+            "datasets/cameraman/cameraman.png", scale, random_state, desv_est
+        )
     elif dataset_name == "wood":
-        return Dataset("datasets/wood/wood.png", scale, random_state)
+        return Dataset("datasets/wood/wood.png", scale, random_state, desv_est)
     elif dataset_name == "circle":
-        return Dataset("datasets/circle/circle.png", scale, random_state)
+        return Dataset("datasets/circle/circle.png", scale, random_state, desv_est)
     elif dataset_name == "guacamayo":
-        return Dataset("datasets/guacamayo/guacamayo.png", scale, random_state)
+        return Dataset(
+            "datasets/guacamayo/guacamayo.png", scale, random_state, desv_est
+        )
     elif dataset_name == "tigre":
-        return Dataset("datasets/tigre/tigre.jpg", scale, random_state)
+        return Dataset("datasets/tigre/tigre.jpg", scale, random_state, desv_est)
     elif dataset_name == "mariposa":
-        return Dataset("datasets/mariposa/mariposa.jpeg", scale, random_state)
+        return Dataset("datasets/mariposa/mariposa.jpeg", scale, random_state, desv_est)
     elif dataset_name == "square":
-        return Dataset("datasets/square/square.png", scale, random_state)
+        return Dataset("datasets/square/square.png", scale, random_state, desv_est)
     elif dataset_name == "synthetic":
         return Synthetic(scale)
     else:
         raise ValueError(f"Unknown dataset: {dataset_name}")
 
 
-def get_blur_dataset(dataset_name, scale=256, folder="datasets", random_state=None):
+def get_blur_dataset(
+    dataset_name, scale=256, folder="datasets", random_state=None, desv_est=0.015
+):
     if dataset_name == "cameraman":
-        return BlurDataset("datasets/cameraman/cameraman.png", scale, random_state)
+        return BlurDataset(
+            "datasets/cameraman/cameraman.png", scale, random_state, desv_est
+        )
     elif dataset_name == "wood":
-        return BlurDataset("datasets/wood/wood.png", scale, random_state)
+        return BlurDataset("datasets/wood/wood.png", scale, random_state, desv_est)
     elif dataset_name == "circle":
-        return BlurDataset("datasets/circle/circle.png", scale, random_state)
+        return BlurDataset("datasets/circle/circle.png", scale, random_state, desv_est)
     elif dataset_name == "synthetic":
         return Synthetic(scale)
     else:

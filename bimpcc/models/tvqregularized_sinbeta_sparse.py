@@ -31,7 +31,10 @@ class TVDenRegObjectiveFn(ObjectiveFn):
 
     def __call__(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
-        return 0.5 * np.linalg.norm(u - self.true_img) ** 2
+        return (
+            0.5 * np.linalg.norm(u - self.true_img) ** 2
+            + self.epsilon * np.linalg.norm(x) ** 2
+        )
         # return 0.5 * np.linalg.norm(u - self.true_img) ** 2 + self.epsilon * np.linalg.norm(alpha) ** 2
 
     def parse_vars(self, x):
@@ -39,9 +42,10 @@ class TVDenRegObjectiveFn(ObjectiveFn):
 
     def gradient(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
-        return np.concatenate(
+        temp1 = np.concatenate(
             (u - self.true_img, np.zeros(self.M + self.parameter_size))
         )
+        return temp1 + 2 * self.epsilon * x
 
     def hessian(self, x: np.ndarray) -> float:
         """
