@@ -14,7 +14,7 @@ def load_and_scale_image(
         rng = np.random.default_rng(random_state)
         # np.random.seed(random_state)
         # noise = 0.05*np.random.randn(target_pixels, target_pixels)
-        noise = rng.normal(0, 0.035, grayscale_image.shape)
+        noise = rng.normal(0, 0.07, grayscale_image.shape)
         grayscale_image += noise
 
     grayscale_image = np.clip(grayscale_image, 0, 1)
