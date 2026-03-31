@@ -42,6 +42,7 @@ class TVDenRegObjectiveFn(ObjectiveFn):
     def gradient(self, x: np.ndarray) -> float:
         u, q, alpha = self.parse_vars(x)
         # v = np.concatenate((q, r, delta, theta, alpha))
+        print(alpha)
         return np.concatenate(
             (u - self.true_img, np.zeros(self.M + self.parameter_size))
         )

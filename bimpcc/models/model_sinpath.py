@@ -64,36 +64,35 @@ class MPCCModel(ABC):
 
     def solve(
         self,
-        t_init: float = 0.1,
-        t_min: float = 1e-5,
-        max_iter: int = 10,
+        true_img: np.ndarray,
+        N: int=128,
+        t_values=None,
         tol: float = 1e-3,
         nlp_tol: float = 1e-6,
         nlp_max_iter: int = 5000,
         verbose: bool = False,
         print_level: int = 0,
-        beta=0.5,
         *args,
         **kwargs,
     ):
+
+
+        if t_values is None:
+            t_values = [1e-1, 1e-2, 1e-3]
+
         x = self.x0
-        t = t_init  # self.t
         res = None
         fn = None
+        history = []
 
-        history = []  # Guardamos info para la tabla de resultados
         print(
-            f"{'Iter': >5}\t{'Termination_status': >15}\t{'Objective': >15}\t{
-                'MPCC_compl': >15}\t{'t': >15}\n"
+            f"{'Iter':>5}\t{'Termination_status':>15}\t{'Objective':>15}\t"
+            f"{'MPCC_compl':>15}\t{'t':>15}\n"
         )
-        for k in range(max_iter):
-            if t <= t_min:
-                # print(f"Intermediate result: {res}")
-                # print(f"Intermediate x: {x}")
-                print(f"Intermediate fn: {fn}")
-                print(f"complementarity: {self.compute_complementarity(x)}")
-                break
+
+        for k, t in enumerate(t_values):
             start_time = time.perf_counter()
+
             res, x_, fn = self._solve_nlp(
                 x,
                 self.bounds,
@@ -102,13 +101,17 @@ class MPCCModel(ABC):
                 print_level=print_level,
                 max_iter=nlp_max_iter,
             )
+
             end_time = time.perf_counter()
             time_iter = end_time - start_time
+
             self.comp = self.compute_complementarity(x_)
-            # print(res.keys()) revisamos si hay nit
-            # print("info", res["info"].keys())
             nlp_iter_k = res.get("nit", None)
             alpha_k = float(x_[-1])
+            u_k = x_[:N**2]  # ajustar según tu estructura
+            u = u_k.reshape((N,N))
+            psnr_k = psnr(u, true_img)
+
             history.append(
                 {
                     "k": int(k),
@@ -118,38 +121,38 @@ class MPCCModel(ABC):
                     "obj": float(fn),
                     "t": float(t),
                     "alpha": alpha_k,
+                    "psnr": float(psnr_k),
                 }
             )
 
+            if verbose:
+                print(
+                    f"{k:>5}\t{res['status']:>15}\t{fn:>15.6e}\t"
+                    f"{self.comp:>15.6e}\t{t:>15.6e}"
+                )
+
+            # Si el NLP fue exitoso, usamos la solución como warm start
+            if res["status"] >= 0:
+                x = x_
+            else:
+                print(f"Fallo en la iteración {k} para t = {t}")
+                res["iter"] = k
+                return res, x, fn, history
+
+            # criterio de parada por complementariedad
             if np.abs(self.comp) < tol:
                 print(
-                    f"{k: > 5}*\t{res['status']: > 15}\t{fn: > 15}\t{self.comp: > 15}\t{
-                        t: > 15}"
+                    f"{k:>5}*\t{res['status']:>15}\t{fn:>15.6e}\t"
+                    f"{self.comp:>15.6e}\t{t:>15.6e}"
                 )
                 res["iter"] = k
                 return res, x_, fn, history
-            # status = ""
-            if res["status"] >= 0:
-                t_ = max(t_min, beta * t)
-                x = x_
-            else:
-                t_ = 1.1 * t
-                beta = 0.9 * beta
-                # status = f" (FAILED {res['status']})"
-            if verbose:
-                print(
-                    f"{k: > 5}\t{res['status']: > 15}\t{fn: > 15}\t{self.comp: > 15}\t{
-                        t: > 15}"
-                )
-                # print(
-                #     f"* Iteration {k+1} {status}: Solving the NLP problem for t = {t} with fn: {fn}, complementarity: {self.compute_complementarity(x)}"
-                # )
-            t = t_
 
         print(
-            f"* (STOPPED) Iteration {k + 1}: Solving the NLP problem for t = {t} with complementarity: {self.compute_complementarity(x)}"
+            f"* (STOPPED) Se resolvieron todos los t_values con complementarity final: "
+            f"{self.compute_complementarity(x)}"
         )
-        res["iter"] = k + 1
+        res["iter"] = len(t_values)
         return res, x, fn, history
 
 
