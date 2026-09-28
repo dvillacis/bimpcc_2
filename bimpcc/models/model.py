@@ -225,6 +225,7 @@ class MPCCPenalizedModel(ABC):
         for k in range(max_iter):
             tol_c = mu**gamma
             tol_p = nu * mu
+            # tol_p = 1e-1
             info_, x_, fn_ = self._solve_nlp(
                 x, self.bounds, pi, mu, tol_c, tol_p, tol=tol, print_level=print_level
             )

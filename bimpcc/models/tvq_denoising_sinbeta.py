@@ -344,6 +344,39 @@ class BoundConstraintFn(ConstraintFn):
         )
         return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
 
+# Añadimos \delta\geq 0 como restricción para evitar la caja
+class DeltaLowerBoundConstraintFn(ConstraintFn):
+    def __init__(self, M, N, parameter_size: int = 1):
+        self.M = M
+        self.N = N
+        self.R = M // 2
+        self.parameter_size = parameter_size
+        self.Z_N = sp.coo_matrix((self.R, self.N))
+        self.Z_M = sp.coo_matrix((self.R, self.M))
+        self.Z_R = sp.coo_matrix((self.R, self.R))
+        self.Id = sp.diags(np.ones(self.R), format="coo")
+        self.Z_P = sp.coo_matrix((self.R, self.parameter_size))
+
+    def __call__(self, x: np.ndarray) -> float:
+        u, q, r, delta, theta, alpha = self.parse_vars(x)
+        return delta  # IPOPT interpretará esto como delta >= 0
+
+    def parse_vars(self, x):
+        return _parse_vars(x, self.N, self.M)
+
+    def jacobian(self, x: np.ndarray) -> float:
+        # El Jacobiano de 'delta' respecto a sí mismo es la matriz Identidad positiva
+        jac = sp.hstack(
+            [
+                self.Z_N,  # u
+                self.Z_M,  # q
+                self.Z_R,  # r
+                self.Id,   # delta
+                self.Z_R,  # theta
+                self.Z_P,  # alpha
+            ]
+        )
+        return sp.coo_array((jac.data, (jac.row, jac.col)), shape=jac.shape)
 
 class TVDenComplementarityConstraintFn(ComplementarityConstraintFn):
     def __init__(self, M: int, N: int, t: float = 1.0, parameter_size: int = 1):
@@ -402,6 +435,7 @@ class TVDenoisingMPCC(MPCCModel):
         M, N = K.shape
         R = M // 2
         objective_func = TVDenObjectiveFn(true_img, K, epsilon=epsilon)
+        
         eq_constraint_funcs = [
             StateConstraintFn(
                 noisy_img,
@@ -414,20 +448,30 @@ class TVDenoisingMPCC(MPCCModel):
             PrimalConstraintFn(K),
             DualConstraintFn(K, Kx, Ky),
         ]
-        ineq_constraint_funcs = [BoundConstraintFn(M, N)]
-        # ineq_constraint_funcs = []
+        
+        # NUEVO: Pasamos ambas restricciones como funciones de desigualdad
+        ineq_constraint_funcs = [
+            DeltaLowerBoundConstraintFn(M, N, parameter_size), # delta >= 0
+            BoundConstraintFn(M, N, parameter_size)            # 1 - delta >= 0
+        ]
 
         u_bounds = [(0, None)] * N
         q_bounds = [(None, None)] * M
         r_bounds = [(0, None)] * R
-        delta_bounds = [(0.001, None)] * R
+        
+        # NUEVO: Dejamos la variable sin límites de caja explícitos 
+        # para que las ineq_constraint_funcs hagan todo el trabajo
+        delta_bounds = [(None, None)] * R 
+        
         theta_bounds = [(None, None)] * R
         alpha_bounds = [(0.0, None)] * (parameter_size)
+        
         bounds = (
             u_bounds + q_bounds + r_bounds + delta_bounds + theta_bounds + alpha_bounds
         )
 
         if x0 is None:
+            # ... (el resto de tu inicialización x0 se mantiene igual)
             x0 = np.concatenate(
                 [
                     noisy_img,

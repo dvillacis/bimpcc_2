@@ -14,7 +14,7 @@ def load_and_scale_image(
         rng = np.random.default_rng(random_state)
         # np.random.seed(random_state)
         # noise = 0.05*np.random.randn(target_pixels, target_pixels)
-        noise = rng.normal(0, 0.05, grayscale_image.shape)
+        noise = rng.normal(0, 0.02, grayscale_image.shape)
         grayscale_image += noise
 
     grayscale_image = np.clip(grayscale_image, 0, 1)
@@ -54,6 +54,8 @@ def get_dataset(dataset_name, scale=256, folder="datasets", random_state=None):
         return Dataset("datasets/guacamayo/guacamayo.png", scale, random_state)
     elif dataset_name == "mariposa":
         return Dataset("datasets/mariposa/mariposa.jpeg", scale, random_state)
+    elif dataset_name == "polos":
+        return Dataset("datasets/polos/polos.jpg", scale, random_state)
     elif dataset_name == "synthetic":
         return Synthetic(scale)
     else:
